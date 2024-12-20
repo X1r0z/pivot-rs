@@ -7,6 +7,8 @@ Rsproxy is a lightweight port-forwarding and socks proxy tool written in Rust ðŸ
 The project is under development, so you need to build yourself.
 
 ```bash
+git clone https://github.com/X1r0z/rsproxy
+cd rsproxy
 cargo build --release
 ```
 
@@ -40,7 +42,7 @@ A basic example of accessing an intranet address through port forwarding.
 # on attacker's machine
 ./rsproxy fwd -l 8888 -l 9999
 
-# on vicim's machine
+# on victim's machine
 ./rsproxy fwd -r 10.0.0.1:3389 -r vps:8888
 
 # now attacker can access 10.0.0.1:3389 through vps:9999
