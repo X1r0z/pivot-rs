@@ -4,11 +4,13 @@ use clap::{Parser, Subcommand};
 use forward::Forward;
 use proxy::Proxy;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
+use reuse::Reuse;
 use tracing::info;
 
 pub mod crypto;
 pub mod forward;
 pub mod proxy;
+pub mod reuse;
 pub mod socks;
 pub mod tcp;
 pub mod udp;
@@ -24,11 +26,11 @@ pub struct Cli {
 pub enum Commands {
     /// Port forwarding mode
     Fwd {
-        /// Local listen address, format: [+][IP:]PORT
+        /// Local listen IP address, format: [+][IP:]PORT
         #[arg(short, long)]
         local: Vec<String>,
 
-        /// Remote connect address, format: [+]IP:PORT
+        /// Remote connect IP address, format: [+]IP:PORT
         #[arg(short, long)]
         remote: Vec<String>,
 
@@ -43,17 +45,36 @@ pub enum Commands {
 
     /// Socks proxy mode
     Proxy {
-        /// Local listen address, format: [+][IP:]PORT
+        /// Local listen IP address, format: [+][IP:]PORT
         #[arg(short, long)]
         local: Vec<String>,
 
-        /// Reverse server address, format: [+]IP:PORT
+        /// Reverse server IP address, format: [+]IP:PORT
         #[arg(short, long)]
         remote: Option<String>,
 
         /// Authentication info, format: user:pass (other for random)
         #[arg(short, long)]
         auth: Option<String>,
+    },
+
+    /// Port reuse mode
+    Reuse {
+        /// Local reuse IP address, format: IP:PORT
+        #[arg(short, long)]
+        local: String,
+
+        /// Remote redirect IP address, format: IP:PORT
+        #[arg(short, long)]
+        remote: String,
+
+        /// Fallback IP address, format: IP:PORT
+        #[arg(short, long)]
+        fallback: String,
+
+        /// External IP address, format: IP
+        #[arg(short, long)]
+        external: String,
     },
 }
 
@@ -114,6 +135,15 @@ pub async fn run(cli: Cli) -> Result<()> {
 
             let proxy = Proxy::new(local, remote, local_opts, remote_opt, auth_info);
             proxy.start().await?;
+        }
+        Commands::Reuse {
+            local,
+            remote,
+            fallback,
+            external,
+        } => {
+            let reuse = Reuse::new(local, remote, fallback, external);
+            reuse.start().await?;
         }
     }
 

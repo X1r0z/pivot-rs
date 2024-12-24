@@ -348,6 +348,7 @@ dependencies = [
  "rand",
  "rcgen",
  "rustls",
+ "socket2",
  "tokio",
  "tokio-rustls",
  "tracing",
