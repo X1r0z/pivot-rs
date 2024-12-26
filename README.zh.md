@@ -6,7 +6,16 @@
 
 ## 构建
 
-项目目前还在开发中, 所以你需要自行构建.
+项目目前仅发布如下架构的二进制文件 (基于 GitHub Actions):
+
+- x86_64-unknown-linux-gnu
+- x86_64-apple-darwin
+- aarch64-apple-darwin
+- x86_64-pc-windows-msvc
+
+*其中 `x86_64-unknown-linux-gnu` 和 `x86_64-pc-windows-msvc` 会另外附加一份 UPX 压缩过后的二进制文件*
+
+如果你需要的架构不在上面的列表中, 你可以自行构建.
 
 ```bash
 git clone https://github.com/X1r0z/pivot-rs

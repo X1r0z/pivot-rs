@@ -6,7 +6,16 @@
 
 ## Build
 
-The project is under development, so you need to build yourself.
+The project currently only releases binaries for the following architectures (based on GitHub Actions):
+
+- x86_64-unknown-linux-gnu
+- x86_64-apple-darwin
+- aarch64-apple-darwin
+- x86_64-pc-windows-msvc
+
+*`x86_64-unknown-linux-gnu` and `x86_64-pc-windows-msvc` will have an additional UPX compressed binary file*
+
+If the architecture you need is not in the list above, you can build it yourself.
 
 ```bash
 git clone https://github.com/X1r0z/pivot-rs
