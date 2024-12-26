@@ -1,0 +1,119 @@
+name: Rust Build and Release
+
+on:
+  push:
+    tags:
+      - "*"
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust environment
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          target: ${{ matrix.target }}
+
+      - name: Install UPX (on Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          choco install upx
+
+      - name: Build the project
+        run: |
+          cargo build --release --target ${{ matrix.target }}
+
+      - name: Compress binary with UPX (on Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          upx --best --lzma target/${{ matrix.target }}/release/pivot -o target/${{ matrix.target }}/release/pivot_upx
+
+      - name: Compress binary with UPX (on Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          upx --best --lzma target/${{ matrix.target }}/release/pivot.exe -o target/${{ matrix.target }}/release/pivot_upx.exe
+
+      - name: Prepare artifacts (on Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          mkdir artifacts
+          cp target/${{ matrix.target }}/release/pivot artifacts/
+          if [ -f target/${{ matrix.target }}/release/pivot_upx ]; then
+            cp target/${{ matrix.target }}/release/pivot_upx artifacts/
+          fi
+          cp README*.md artifacts/
+          cp LICENSE artifacts/
+
+      - name: Prepare artifacts (on Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          mkdir artifacts
+          cp target/${{ matrix.target }}/release/pivot.exe artifacts/
+          cp target/${{ matrix.target }}/release/pivot_upx.exe artifacts/
+          cp README*.md artifacts/
+          cp LICENSE artifacts/
+
+      - name: Package artifacts (on Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          tar -czvf pivot-${{ matrix.target }}.tar.gz artifacts/*
+
+      - name: Package artifacts (on Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          7z a pivot-${{ matrix.target }}.zip artifacts\*
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pivot-${{ matrix.target }}
+          path: |
+            pivot-${{ matrix.target }}.${{ matrix.os == 'windows-latest' && 'zip' || 'tar.gz' }}
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release_artifacts
+          pattern: pivot-*
+          merge-multiple: true
+
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          args: -v --current --strip all
+        env:
+          OUTPUT: CHANGELOG.md
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Upload binary releases
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: CHANGELOG.md
+          files: |
+            release_artifacts/*
