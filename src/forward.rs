@@ -271,9 +271,9 @@ impl Forward {
         let (addr2, _) = &self.locals[1];
 
         let socket1 = UdpSocket::bind(addr1).await?;
-        let socket2 = UdpSocket::bind(addr2).await?;
-
         info!("Bind to {} success", addr1);
+
+        let socket2 = UdpSocket::bind(addr2).await?;
         info!("Bind to {} success", addr2);
 
         // socket1 will receive the handshake packet to keep client address
@@ -301,9 +301,9 @@ impl Forward {
         let socket2 = UdpSocket::bind("0.0.0.0:0").await?;
 
         socket1.connect(addr1).await?;
-        socket2.connect(addr2).await?;
-
         info!("Connect to {} success", addr1);
+
+        socket2.connect(addr2).await?;
         info!("Connect to {} success", addr2);
 
         // socket2 will send the handshake packet to keep client address
