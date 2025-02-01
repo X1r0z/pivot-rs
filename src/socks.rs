@@ -33,7 +33,7 @@ impl AuthInfo {
         Self { user, pass }
     }
 
-    pub fn verfiy(&self, user: &str, pass: &str) -> bool {
+    fn verfiy(&self, user: &str, pass: &str) -> bool {
         self.user == user && self.pass == pass
     }
 }

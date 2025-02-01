@@ -6,14 +6,14 @@ use proxy::Proxy;
 use reuse::Reuse;
 use tracing::info;
 
-pub mod crypto;
-pub mod forward;
-pub mod proxy;
-pub mod reuse;
-pub mod socks;
-pub mod tcp;
-pub mod udp;
-pub mod util;
+mod crypto;
+mod forward;
+mod proxy;
+mod reuse;
+mod socks;
+mod tcp;
+mod udp;
+mod util;
 
 #[derive(Parser)]
 #[command(author, version, about = "Pivot: Port-Forwarding and Proxy Tool")]
@@ -23,7 +23,7 @@ pub struct Cli {
 }
 
 #[derive(Subcommand)]
-pub enum Mode {
+enum Mode {
     /// Port forwarding mode
     #[clap(name = "fwd")]
     Forward {
@@ -86,7 +86,7 @@ pub enum Mode {
 }
 
 #[derive(Clone, ValueEnum)]
-pub enum Protocol {
+enum Protocol {
     /// TCP Protocol
     Tcp,
     /// UDP Protocol
