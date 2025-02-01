@@ -1,6 +1,6 @@
 use std::io::Result;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use forward::Forward;
 use proxy::Proxy;
 use reuse::Reuse;
@@ -19,36 +19,38 @@ pub mod util;
 #[command(author, version, about = "Pivot: Port-Forwarding and Proxy Tool")]
 pub struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    mode: Mode,
 }
 
 #[derive(Subcommand)]
-pub enum Commands {
+pub enum Mode {
     /// Port forwarding mode
-    Fwd {
+    #[clap(name = "fwd")]
+    Forward {
         /// Local listen IP address, format: [+][IP:]PORT
         #[arg(short, long)]
-        local: Vec<String>,
+        locals: Vec<String>,
 
         /// Remote connect IP address, format: [+]IP:PORT
         #[arg(short, long)]
-        remote: Vec<String>,
+        remotes: Vec<String>,
 
         /// Unix domain socket path
         #[cfg(target_family = "unix")]
         #[arg(short, long)]
         socket: Option<String>,
 
-        /// Enable UDP forward mode
+        /// Forward Protocol
         #[arg(short, long)]
-        udp: bool,
+        #[clap(value_enum, default_value = "tcp")]
+        protocol: Protocol,
     },
 
     /// Socks proxy mode
     Proxy {
         /// Local listen IP address, format: [+][IP:]PORT
         #[arg(short, long)]
-        local: Vec<String>,
+        locals: Vec<String>,
 
         /// Reverse server IP address, format: [+]IP:PORT
         #[arg(short, long)]
@@ -83,74 +85,58 @@ pub enum Commands {
     },
 }
 
+#[derive(Clone, ValueEnum)]
+pub enum Protocol {
+    /// TCP Protocol
+    Tcp,
+    /// UDP Protocol
+    Udp,
+}
+
 pub async fn run(cli: Cli) -> Result<()> {
-    match cli.command {
-        Commands::Fwd {
-            local,
-            remote,
+    match cli.mode {
+        Mode::Forward {
+            locals,
+            remotes,
             #[cfg(target_family = "unix")]
             socket,
-            udp,
+            protocol,
         } => {
             info!("Starting forward mode");
 
-            if udp {
-                info!("Using UDP protocol");
-            } else {
-                info!("Using TCP protocol");
+            match protocol {
+                Protocol::Tcp => info!("Using TCP protocol"),
+                Protocol::Udp => info!("Using UDP protocol"),
             }
 
-            let local_addrs = local
-                .iter()
-                .map(|addr| addr.replace("+", ""))
-                .map(|addr| match addr.contains(':') {
-                    true => addr,
-                    false => format!("0.0.0.0:{}", addr),
-                })
-                .collect();
-            let remote_addrs = remote.iter().map(|addr| addr.replace("+", "")).collect();
-
-            let local_opts = local.iter().map(|addr| addr.starts_with('+')).collect();
-            let remote_opts = remote.iter().map(|addr| addr.starts_with('+')).collect();
+            let locals = util::parse_addrs(locals);
+            let remotes = util::parse_addrs(remotes);
 
             let forward = Forward::new(
-                local_addrs,
-                remote_addrs,
-                local_opts,
-                remote_opts,
+                locals,
+                remotes,
                 #[cfg(target_family = "unix")]
                 socket,
-                udp,
+                protocol,
             );
 
             forward.start().await?;
         }
-        Commands::Proxy {
-            local,
+        Mode::Proxy {
+            locals,
             remote,
             auth,
         } => {
             info!("Starting proxy mode");
 
-            let local_addrs = local
-                .iter()
-                .map(|addr| addr.replace("+", ""))
-                .map(|addr| match addr.contains(':') {
-                    true => addr,
-                    false => format!("0.0.0.0:{}", addr),
-                })
-                .collect();
-            let local_opts = local.iter().map(|addr| addr.starts_with('+')).collect();
+            let locals = util::parse_addrs(locals);
+            let remote = util::parse_addr(remote);
+            let auth = auth.map(|v| socks::AuthInfo::new(v));
 
-            let remote_addr = remote.as_ref().map(|addr| addr.replace("+", ""));
-            let remote_opt = remote.is_some_and(|addr| addr.starts_with('+'));
-
-            let auth_info = auth.map(|v| socks::AuthInfo::new(v));
-
-            let proxy = Proxy::new(local_addrs, remote_addr, local_opts, remote_opt, auth_info);
+            let proxy = Proxy::new(locals, remote, auth);
             proxy.start().await?;
         }
-        Commands::Reuse {
+        Mode::Reuse {
             local,
             remote,
             fallback,

@@ -10,13 +10,13 @@ pub async fn handle_local_forward(socket1: UdpSocket, socket2: UdpSocket) -> Res
     let mut buf2 = vec![0u8; BUFFER_SIZE];
 
     #[allow(unused_assignments)]
-    let mut last_client_addr_1 = None;
-    let mut last_client_addr_2 = None;
+    let mut last_addr1 = None;
+    let mut last_addr2 = None;
 
     // handshake to keep the client address
     match socket1.recv_from(&mut [0u8; 4]).await {
         Ok((_, addr)) => {
-            last_client_addr_1 = Some(addr);
+            last_addr1 = Some(addr);
             info!("Handshake with client address {} success", addr)
         }
         Err(e) => {
@@ -28,10 +28,10 @@ pub async fn handle_local_forward(socket1: UdpSocket, socket2: UdpSocket) -> Res
     loop {
         select! {
             Ok((len, addr)) = socket1.recv_from(&mut buf1) => {
-                last_client_addr_1 = Some(addr);
+                last_addr1 = Some(addr);
                 let data = &buf1[..len];
 
-                match last_client_addr_2 {
+                match last_addr2 {
                     Some(client_addr) => {
                         if let Err(e) = socket2.send_to(data, client_addr).await {
                             error!("Failed to forward to target: {}", e);
@@ -41,10 +41,10 @@ pub async fn handle_local_forward(socket1: UdpSocket, socket2: UdpSocket) -> Res
                 }
             }
             Ok((len, addr)) = socket2.recv_from(&mut buf2) => {
-                last_client_addr_2 = Some(addr);
+                last_addr2 = Some(addr);
                 let data = &buf2[..len];
 
-                match last_client_addr_1 {
+                match last_addr1 {
                     Some(client_addr) => {
                         if let Err(e) = socket1.send_to(data, client_addr).await {
                             error!("Failed to forward to target: {}", e);
@@ -76,12 +76,12 @@ pub async fn handle_local_to_remote_forward(
         );
     }
 
-    let mut last_client_addr = None;
+    let mut last_addr = None;
 
     loop {
         select! {
             Ok((len, addr)) = local_socket.recv_from(&mut buf1) => {
-                last_client_addr = Some(addr);
+                last_addr = Some(addr);
                 let data = &buf1[..len];
 
                 if let Err(e) = remote_socket.send(data).await {
@@ -89,7 +89,7 @@ pub async fn handle_local_to_remote_forward(
                 }
             }
             Ok(len) = remote_socket.recv(&mut buf2) => {
-                match last_client_addr {
+                match last_addr {
                     Some(addr) => {
                         let data = &buf2[..len];
 

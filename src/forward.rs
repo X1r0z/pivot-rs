@@ -10,45 +10,35 @@ use tracing::{error, info};
 #[cfg(target_family = "unix")]
 use tokio::net::UnixStream;
 
-use crate::{crypto, tcp, udp};
+use crate::{crypto, tcp, udp, Protocol};
 
 pub struct Forward {
-    local_addrs: Vec<String>,
-    remote_addrs: Vec<String>,
-    local_opts: Vec<bool>,
-    remote_opts: Vec<bool>,
+    locals: Vec<(String, bool)>,
+    remotes: Vec<(String, bool)>,
     #[cfg(target_family = "unix")]
     socket: Option<String>,
-    udp: bool,
+    protocol: Protocol,
 }
 
 impl Forward {
     pub fn new(
-        local_addrs: Vec<String>,
-        remote_addrs: Vec<String>,
-        local_opts: Vec<bool>,
-        remote_opts: Vec<bool>,
+        locals: Vec<(String, bool)>,
+        remotes: Vec<(String, bool)>,
         #[cfg(target_family = "unix")] socket: Option<String>,
-        udp: bool,
+        protocol: Protocol,
     ) -> Self {
         Self {
-            local_addrs,
-            remote_addrs,
-            local_opts,
-            remote_opts,
+            locals,
+            remotes,
             #[cfg(target_family = "unix")]
             socket,
-            udp,
+            protocol,
         }
     }
 
     pub async fn start(&self) -> Result<()> {
         #[cfg(target_family = "unix")]
-        match (
-            self.local_addrs.len(),
-            self.remote_addrs.len(),
-            &self.socket,
-        ) {
+        match (self.locals.len(), self.remotes.len(), &self.socket) {
             (2, 0, None) => self.local_to_local().await?,
             (1, 1, None) => self.local_to_remote().await?,
             (0, 2, None) => self.remote_to_remote().await?,
@@ -58,7 +48,7 @@ impl Forward {
         }
 
         #[cfg(target_family = "windows")]
-        match (self.local_addrs.len(), self.remote_addrs.len()) {
+        match (self.locals.len(), self.remotes.len()) {
             (2, 0) => self.local_to_local().await?,
             (1, 1) => self.local_to_remote().await?,
             (0, 2) => self.remote_to_remote().await?,
@@ -69,49 +59,47 @@ impl Forward {
     }
 
     async fn local_to_local(&self) -> Result<()> {
-        if self.udp {
-            self.local_to_local_udp().await
-        } else {
-            self.local_to_local_tcp().await
+        match self.protocol {
+            Protocol::Tcp => self.local_to_local_tcp().await,
+            Protocol::Udp => self.local_to_local_udp().await,
         }
     }
 
     async fn local_to_remote(&self) -> Result<()> {
-        if self.udp {
-            self.local_to_remote_udp().await
-        } else {
-            self.local_to_remote_tcp().await
+        match self.protocol {
+            Protocol::Tcp => self.local_to_remote_tcp().await,
+            Protocol::Udp => self.local_to_remote_udp().await,
         }
     }
 
     async fn remote_to_remote(&self) -> Result<()> {
-        if self.udp {
-            self.remote_to_remote_udp().await
-        } else {
-            self.remote_to_remote_tcp().await
+        match self.protocol {
+            Protocol::Tcp => self.remote_to_remote_tcp().await,
+            Protocol::Udp => self.remote_to_remote_udp().await,
         }
     }
 
     async fn local_to_local_tcp(&self) -> Result<()> {
-        let listener1 = TcpListener::bind(&self.local_addrs[0]).await?;
-        let listener2 = TcpListener::bind(&self.local_addrs[1]).await?;
+        let (addr1, ssl1) = &self.locals[0];
+        let (addr2, ssl2) = &self.locals[1];
 
-        info!("Bind to {} success", listener1.local_addr()?);
+        let listener1 = TcpListener::bind(addr1).await?;
         info!("Bind to {} success", listener1.local_addr()?);
 
-        let acceptor1 =
-            Arc::new(self.local_opts[0].then(|| crypto::get_tls_acceptor(&self.local_addrs[0])));
-        let acceptor2 =
-            Arc::new(self.local_opts[1].then(|| crypto::get_tls_acceptor(&self.local_addrs[1])));
+        let listener2 = TcpListener::bind(addr2).await?;
+        info!("Bind to {} success", listener2.local_addr()?);
+
+        let acceptor1 = Arc::new(ssl1.then(|| crypto::get_tls_acceptor(addr1)));
+        let acceptor2 = Arc::new(ssl2.then(|| crypto::get_tls_acceptor(addr2)));
 
         loop {
             let (r1, r2) = join!(listener1.accept(), listener2.accept());
 
-            let (stream1, addr1) = r1?;
-            let (stream2, addr2) = r2?;
+            let (stream1, client_addr1) = r1?;
+            info!("Accept connection from {}", client_addr1);
 
-            info!("Accept connection from {}", addr1);
-            info!("Accept connection from {}", addr2);
+            let (stream2, client_addr2) = r2?;
+            info!("Accept connection from {}", client_addr2);
 
             let acceptor1 = acceptor1.clone();
             let acceptor2 = acceptor2.clone();
@@ -120,31 +108,31 @@ impl Forward {
                 let stream1 = tcp::NetStream::from_acceptor(stream1, acceptor1).await;
                 let stream2 = tcp::NetStream::from_acceptor(stream2, acceptor2).await;
 
-                info!("Open pipe: {} <=> {}", addr1, addr2);
+                info!("Open pipe: {} <=> {}", client_addr1, client_addr2);
                 if let Err(e) = tcp::handle_forward(stream1, stream2).await {
                     error!("Failed to forward: {}", e)
                 }
-                info!("Close pipe: {} <=> {}", addr1, addr2);
+                info!("Close pipe: {} <=> {}", client_addr1, client_addr2);
             });
         }
     }
 
     async fn local_to_remote_tcp(&self) -> Result<()> {
-        let listener = TcpListener::bind(&self.local_addrs[0]).await?;
+        let (local_addr, local_ssl) = &self.locals[0];
+        let (remote_addr, remote_ssl) = &self.remotes[0];
+
+        let listener = TcpListener::bind(local_addr).await?;
         info!("Bind to {} success", listener.local_addr()?);
 
-        let acceptor =
-            Arc::new(self.local_opts[0].then(|| crypto::get_tls_acceptor(&self.local_addrs[0])));
-
-        let connector = Arc::new(self.remote_opts[0].then(|| crypto::get_tls_connector()));
+        let acceptor = Arc::new(local_ssl.then(|| crypto::get_tls_acceptor(local_addr)));
+        let connector = Arc::new(remote_ssl.then(|| crypto::get_tls_connector()));
 
         loop {
             let (client_stream, client_addr) = listener.accept().await?;
-            let remote_stream = TcpStream::connect(&self.remote_addrs[0]).await?;
-
-            let remote_addr = remote_stream.peer_addr()?;
-
             info!("Accept connection from {}", client_addr);
+
+            let remote_stream = TcpStream::connect(remote_addr).await?;
+            let remote_addr = remote_stream.peer_addr()?;
             info!("Connect to {} success", remote_addr);
 
             let acceptor = acceptor.clone();
@@ -164,8 +152,11 @@ impl Forward {
     }
 
     async fn remote_to_remote_tcp(&self) -> Result<()> {
-        let connector1 = Arc::new(self.remote_opts[0].then(|| crypto::get_tls_connector()));
-        let connector2 = Arc::new(self.remote_opts[1].then(|| crypto::get_tls_connector()));
+        let (addr1, ssl1) = &self.remotes[0];
+        let (addr2, ssl2) = &self.remotes[1];
+
+        let connector1 = Arc::new(ssl1.then(|| crypto::get_tls_connector()));
+        let connector2 = Arc::new(ssl2.then(|| crypto::get_tls_connector()));
 
         // limit the number of concurrent connections
         let semaphore = Arc::new(sync::Semaphore::new(32));
@@ -173,17 +164,14 @@ impl Forward {
         loop {
             let permit = semaphore.clone().acquire_owned().await.unwrap();
 
-            let (r1, r2) = join!(
-                TcpStream::connect(&self.remote_addrs[0]),
-                TcpStream::connect(&self.remote_addrs[1])
-            );
+            let (r1, r2) = join!(TcpStream::connect(addr1), TcpStream::connect(addr2));
 
-            let (stream1, stream2) = (r1?, r2?);
-
+            let stream1 = r1?;
             let addr1 = stream1.peer_addr()?;
-            let addr2 = stream2.peer_addr()?;
-
             info!("Connect to {} success", addr1);
+
+            let stream2 = r2?;
+            let addr2 = stream2.peer_addr()?;
             info!("Connect to {} success", addr2);
 
             let connector1 = connector1.clone();
@@ -207,39 +195,41 @@ impl Forward {
 
     #[cfg(target_family = "unix")]
     async fn socket_to_local_tcp(&self) -> Result<()> {
-        let local_listener = TcpListener::bind(&self.local_addrs[0]).await?;
-        info!("Bind to {} success", local_listener.local_addr()?);
+        let (addr, ssl) = &self.locals[0];
 
-        let acceptor =
-            Arc::new(self.local_opts[0].then(|| crypto::get_tls_acceptor(&self.local_addrs[0])));
+        let listener = TcpListener::bind(addr).await?;
+        info!("Bind to {} success", listener.local_addr()?);
+
+        let acceptor = Arc::new(ssl.then(|| crypto::get_tls_acceptor(addr)));
 
         loop {
-            let unix_addr = self.socket.clone().unwrap();
-
-            let (client_stream, client_addr) = local_listener.accept().await?;
-            let unix_stream = UnixStream::connect(&unix_addr).await?;
-
+            let (tcp_stream, client_addr) = listener.accept().await?;
             info!("Accept connection from {}", client_addr);
-            info!("Connect to {} success", unix_addr);
+
+            let unix_socket = self.socket.clone().unwrap();
+            let unix_stream = UnixStream::connect(&unix_socket).await?;
+            info!("Connect to {} success", unix_socket);
 
             let acceptor = acceptor.clone();
 
             tokio::spawn(async move {
-                let client_stream = tcp::NetStream::from_acceptor(client_stream, acceptor).await;
+                let tcp_stream = tcp::NetStream::from_acceptor(tcp_stream, acceptor).await;
                 let unix_stream = tcp::NetStream::Unix(unix_stream);
 
-                info!("Open pipe: {} <=> {}", unix_addr, client_addr);
-                if let Err(e) = tcp::handle_forward(client_stream, unix_stream).await {
+                info!("Open pipe: {} <=> {}", unix_socket, client_addr);
+                if let Err(e) = tcp::handle_forward(tcp_stream, unix_stream).await {
                     error!("Failed to forward: {}", e)
                 }
-                info!("Close pipe: {} <=> {}", unix_addr, client_addr);
+                info!("Close pipe: {} <=> {}", unix_socket, client_addr);
             });
         }
     }
 
     #[cfg(target_family = "unix")]
     async fn socket_to_remote_tcp(&self) -> Result<()> {
-        let connector = Arc::new(self.remote_opts[0].then(|| crypto::get_tls_connector()));
+        let (addr, ssl) = &self.remotes[0];
+
+        let connector = Arc::new(ssl.then(|| crypto::get_tls_connector()));
 
         // limit the number of concurrent connections
         let semaphore = Arc::new(sync::Semaphore::new(32));
@@ -247,30 +237,28 @@ impl Forward {
         loop {
             let permit = semaphore.clone().acquire_owned().await.unwrap();
 
-            let unix_addr = self.socket.clone().unwrap();
-            let remote_addr = self.remote_addrs[0].clone();
+            let unix_socket = self.socket.clone().unwrap();
+            let addr = addr.clone();
 
-            let (r1, r2) = join!(
-                UnixStream::connect(&unix_addr),
-                TcpStream::connect(&remote_addr)
-            );
+            let (r1, r2) = join!(UnixStream::connect(&unix_socket), TcpStream::connect(&addr));
 
-            let (unix_stream, remote_stream) = (r1?, r2?);
+            let unix_stream = r1?;
+            info!("Connect to {} success", unix_socket);
 
-            info!("Connect to {} success", unix_addr);
-            info!("Connect to {} success", remote_addr);
+            let tcp_stream = r2?;
+            info!("Connect to {} success", addr);
 
             let connector = connector.clone();
 
             tokio::spawn(async move {
                 let unix_stream = tcp::NetStream::Unix(unix_stream);
-                let remote_stream = tcp::NetStream::from_connector(remote_stream, connector).await;
+                let tcp_stream = tcp::NetStream::from_connector(tcp_stream, connector).await;
 
-                info!("Open pipe: {} <=> {}", unix_addr, remote_addr);
-                if let Err(e) = tcp::handle_forward(unix_stream, remote_stream).await {
+                info!("Open pipe: {} <=> {}", unix_socket, addr);
+                if let Err(e) = tcp::handle_forward(unix_stream, tcp_stream).await {
                     error!("Failed to forward: {}", e)
                 }
-                info!("Close pipe: {} <=> {}", unix_addr, remote_addr);
+                info!("Close pipe: {} <=> {}", unix_socket, addr);
 
                 // drop the permit to release the semaphore
                 drop(permit);
@@ -279,35 +267,44 @@ impl Forward {
     }
 
     async fn local_to_local_udp(&self) -> Result<()> {
-        let socket1 = UdpSocket::bind(&self.local_addrs[0]).await?;
-        let socket2 = UdpSocket::bind(&self.local_addrs[1]).await?;
+        let (addr1, _) = &self.locals[0];
+        let (addr2, _) = &self.locals[1];
 
-        info!("Bind to {} success", self.local_addrs[0]);
-        info!("Bind to {} success", self.local_addrs[1]);
+        let socket1 = UdpSocket::bind(addr1).await?;
+        info!("Bind to {} success", addr1);
+
+        let socket2 = UdpSocket::bind(addr2).await?;
+        info!("Bind to {} success", addr2);
 
         // socket1 will receive the handshake packet to keep client address
         udp::handle_local_forward(socket1, socket2).await
     }
 
     async fn local_to_remote_udp(&self) -> Result<()> {
-        let local_socket = UdpSocket::bind(&self.local_addrs[0]).await?;
+        let (local_addr, _) = &self.locals[0];
+        let (remote_addr, _) = &self.remotes[0];
+
+        let local_socket = UdpSocket::bind(local_addr).await?;
         let remote_socket = UdpSocket::bind("0.0.0.0:0").await?;
 
-        remote_socket.connect(&self.remote_addrs[0]).await?;
-        info!("Connect to {} success", self.remote_addrs[0]);
+        remote_socket.connect(remote_addr).await?;
+        info!("Connect to {} success", remote_addr);
 
         udp::handle_local_to_remote_forward(local_socket, remote_socket).await
     }
 
     async fn remote_to_remote_udp(&self) -> Result<()> {
+        let (addr1, _) = &self.remotes[0];
+        let (addr2, _) = &self.remotes[1];
+
         let socket1 = UdpSocket::bind("0.0.0.0:0").await?;
         let socket2 = UdpSocket::bind("0.0.0.0:0").await?;
 
-        socket1.connect(&self.remote_addrs[0]).await?;
-        socket2.connect(&self.remote_addrs[1]).await?;
+        socket1.connect(addr1).await?;
+        info!("Connect to {} success", addr1);
 
-        info!("Connect to {} success", self.remote_addrs[0]);
-        info!("Connect to {} success", self.remote_addrs[1]);
+        socket2.connect(addr2).await?;
+        info!("Connect to {} success", addr2);
 
         // socket2 will send the handshake packet to keep client address
         udp::handle_remote_forward(socket1, socket2).await

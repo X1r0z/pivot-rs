@@ -19,23 +19,26 @@ pub struct AuthInfo {
 
 impl AuthInfo {
     pub fn new(s: String) -> Self {
-        let (user, pass) = if s.contains(':') {
-            let (r1, r2) = s.split_once(':').unwrap();
-            (r1.to_string(), r2.to_string())
-        } else {
-            (
+        let mut split = s.split(':');
+
+        let (user, pass) = match (split.next(), split.next(), split.next()) {
+            (Some(user), Some(pass), None) => (user.to_string(), pass.to_string()),
+            _ => (
                 util::generate_random_string(12),
                 util::generate_random_string(12),
-            )
+            ),
         };
 
         info!("user: {} pass: {}", user, pass);
-
         Self { user, pass }
+    }
+
+    pub fn verfiy(&self, user: &str, pass: &str) -> bool {
+        self.user == user && self.pass == pass
     }
 }
 
-pub async fn handle_connection(stream: NetStream, auth_info: &Option<AuthInfo>) -> Result<()> {
+pub async fn handle_connection(stream: NetStream, auth: &Option<AuthInfo>) -> Result<()> {
     let (mut reader, mut writer) = stream.split();
 
     // 1. auth negotiation
@@ -53,7 +56,7 @@ pub async fn handle_connection(stream: NetStream, auth_info: &Option<AuthInfo>) 
     let mut methods = vec![0u8; nmethods];
     reader.read_exact(&mut methods).await?;
 
-    match auth_info {
+    match auth {
         Some(auth) => {
             // check username and password authentication
             if !methods.contains(&0x02) {
@@ -76,20 +79,21 @@ pub async fn handle_connection(stream: NetStream, auth_info: &Option<AuthInfo>) 
                 ));
             }
 
-            // read username
+            // read user
             let ulen = auth_buf[1] as usize;
-            let mut username = vec![0u8; ulen];
-            reader.read_exact(&mut username).await?;
+            let mut user = vec![0u8; ulen];
+            reader.read_exact(&mut user).await?;
 
-            // read password
+            // read pass
             let plen = reader.read_u8().await? as usize;
-            let mut password = vec![0u8; plen];
-            reader.read_exact(&mut password).await?;
+            let mut pass = vec![0u8; plen];
+            reader.read_exact(&mut pass).await?;
 
-            // check username and password
-            if String::from_utf8_lossy(&username) == auth.user
-                && String::from_utf8_lossy(&password) == auth.pass
-            {
+            let user = String::from_utf8_lossy(&user);
+            let pass = String::from_utf8_lossy(&pass);
+
+            // check user and pass
+            if auth.verfiy(&user, &pass) {
                 writer.write_all(&[0x01, 0x00]).await?;
             } else {
                 writer.write_all(&[0x01, 0x01]).await?;
@@ -182,6 +186,8 @@ pub async fn handle_connection(stream: NetStream, auth_info: &Option<AuthInfo>) 
         .write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
         .await?;
 
+    let (target_reader, target_writer) = target.split();
+
     // 5. forward data
-    tcp::handle_forward_splitted(reader, writer, target).await
+    tcp::handle_forward_splitted((reader, writer), (target_reader, target_writer)).await
 }
