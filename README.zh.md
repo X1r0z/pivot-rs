@@ -230,7 +230,7 @@ curl http://vps:5555/version
 
 ### Socks 代理
 
-`pivot-rs` 支持 Socks5 协议的代理, 支持配置身份验证
+`pivot-rs` 支持 Socks5 协议的代理, 并且支持配置身份验证
 
 正向 Socks 代理
 
@@ -262,6 +262,20 @@ curl http://vps:5555/version
 ./pivot proxy -l 1080 -a rand
 
 # 生成的随机用户名和密码会输出在终端上
+```
+
+`pivot-rs` 支持将无身份验证的 Socks 请求转发至带有身份验证的 Socks 代理
+
+*目前 Chrome, Edge 和 FireFox 浏览器均不支持带有身份验证的 Socks 代理, 因此可以使用这种方式绕过限制, 同时确保 Socks 代理的安全性*
+
+```bash
+# vps:1080 需要身份验证 (user:pass)
+
+# 监听 1080 端口, 将 Socks 请求转发至 vps:1080 并进行身份验证
+./pivot proxy -l 1080 -r vps:1080 -a user:pass
+
+# 现在浏览器可以使用 127.0.0.1:1080 作为 Socks 代理 (无需身份验证)
+# 身份验证信息会被自动转发
 ```
 
 ### TLS 加密
