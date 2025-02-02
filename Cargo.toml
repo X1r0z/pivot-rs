@@ -8,6 +8,7 @@ description = "pivot-rs is a lightweight port-forwarding and socks proxy tool wr
 license = "MIT"
 
 [dependencies]
+anyhow = "1.0.95"
 clap = { version = "4.5.23", features = ["derive"] }
 rand = "0.8.5"
 rcgen = "0.13.1"

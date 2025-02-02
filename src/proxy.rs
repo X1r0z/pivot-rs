@@ -1,8 +1,6 @@
-use std::{
-    io::{Error, ErrorKind, Result},
-    sync::Arc,
-};
+use std::sync::Arc;
 
+use anyhow::{anyhow, Result};
 use tokio::{
     join,
     net::{TcpListener, TcpStream},
@@ -11,21 +9,21 @@ use tracing::{error, info};
 
 use crate::{
     crypto,
-    socks::{self, handle_socks_connection, SocksAuth},
+    socks::{self, UserPassAuth},
     tcp::{self},
 };
 
 pub struct Proxy {
     locals: Vec<(String, bool)>,
     remote: Option<(String, bool)>,
-    auth: Option<SocksAuth>,
+    auth: Option<UserPassAuth>,
 }
 
 impl Proxy {
     pub fn new(
         locals: Vec<(String, bool)>,
         remote: Option<(String, bool)>,
-        auth: Option<SocksAuth>,
+        auth: Option<UserPassAuth>,
     ) -> Self {
         Self {
             locals,
@@ -63,9 +61,9 @@ impl Proxy {
             let auth = Arc::clone(&auth);
 
             tokio::spawn(async move {
-                let stream = tcp::NetStream::from_acceptor(stream, acceptor).await;
+                let stream = tcp::ForwardStream::from_acceptor(stream, acceptor).await;
 
-                if let Err(e) = handle_socks_connection(stream, auth.as_ref()).await {
+                if let Err(e) = socks::handle_connection(stream, auth.as_ref()).await {
                     error!("Failed to handle connection: {}", e);
                 }
             });
@@ -91,9 +89,9 @@ impl Proxy {
             let auth = Arc::clone(&auth);
 
             tokio::spawn(async move {
-                let stream = tcp::NetStream::from_connector(stream, connector).await;
+                let stream = tcp::ForwardStream::from_connector(stream, connector).await;
 
-                if let Err(e) = handle_socks_connection(stream, auth.as_ref()).await {
+                if let Err(e) = socks::handle_connection(stream, auth.as_ref()).await {
                     error!("Failed to handle connection: {}", e);
                 }
 
@@ -129,11 +127,11 @@ impl Proxy {
             let acceptor2 = Arc::clone(&acceptor2);
 
             tokio::spawn(async move {
-                let stream1 = tcp::NetStream::from_acceptor(stream1, acceptor1).await;
-                let stream2 = tcp::NetStream::from_acceptor(stream2, acceptor2).await;
+                let stream1 = tcp::ForwardStream::from_acceptor(stream1, acceptor1).await;
+                let stream2 = tcp::ForwardStream::from_acceptor(stream2, acceptor2).await;
 
                 info!("Open pipe: {} <=> {}", client_addr1, client_addr2);
-                if let Err(e) = tcp::handle_forward(stream1, stream2).await {
+                if let Err(e) = tcp::forward(stream1, stream2).await {
                     error!("Failed to handle forward: {}", e);
                 }
                 info!("Close pipe: {} <=> {}", client_addr1, client_addr2);
@@ -146,10 +144,7 @@ impl Proxy {
         let (remote_addr, remote_ssl) = self.remote.as_ref().unwrap();
 
         let Some(auth) = self.auth.clone() else {
-            return Err(Error::new(
-                ErrorKind::InvalidInput,
-                "Username and password are required",
-            ));
+            return Err(anyhow!("Username and password are required"));
         };
 
         let listener = TcpListener::bind(local_addr).await?;
@@ -170,13 +165,12 @@ impl Proxy {
             let auth = Arc::clone(&auth);
 
             tokio::spawn(async move {
-                let client_stream = tcp::NetStream::Tcp(client_stream);
-                let remote_stream = tcp::NetStream::from_connector(remote_stream, connector).await;
+                let client_stream = tcp::ForwardStream::Tcp(client_stream);
+                let remote_stream =
+                    tcp::ForwardStream::from_connector(remote_stream, connector).await;
 
                 info!("Open pipe: {} <=> {}", client_addr, remote_addr);
-                if let Err(e) =
-                    socks::handle_socks_forward(client_stream, remote_stream, auth).await
-                {
+                if let Err(e) = socks::handle_forwarding(client_stream, remote_stream, auth).await {
                     error!("Failed to handle forward: {}", e);
                 }
                 info!("Close pipe: {} <=> {}", client_addr, remote_addr);

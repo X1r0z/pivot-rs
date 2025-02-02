@@ -1,5 +1,6 @@
-use std::{io::Result, net::SocketAddr};
+use std::net::SocketAddr;
 
+use anyhow::Result;
 use socket2::{Domain, Protocol, Socket, Type};
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -104,11 +105,11 @@ impl Reuse {
             info!("Connect to {} success", remote_addr);
 
             let task = tokio::spawn(async move {
-                let client_stream = tcp::NetStream::Tcp(client_stream);
-                let remote_stream = tcp::NetStream::Tcp(remote_stream);
+                let client_stream = tcp::ForwardStream::Tcp(client_stream);
+                let remote_stream = tcp::ForwardStream::Tcp(remote_stream);
 
                 info!("Open pipe: {} <=> {}", client_addr, local_addr);
-                if let Err(e) = tcp::handle_forward(client_stream, remote_stream).await {
+                if let Err(e) = tcp::forward(client_stream, remote_stream).await {
                     error!("Failed to forward: {}", e)
                 }
                 info!("Close pipe: {} <=> {}", client_addr, local_addr);
