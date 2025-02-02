@@ -59,8 +59,8 @@ impl Proxy {
             let (stream, client_addr) = listener.accept().await?;
             info!("Accept connection from {}", client_addr);
 
-            let acceptor = acceptor.clone();
-            let auth = auth.clone();
+            let acceptor = Arc::clone(&acceptor);
+            let auth = Arc::clone(&auth);
 
             tokio::spawn(async move {
                 let stream = tcp::NetStream::from_acceptor(stream, acceptor).await;
@@ -82,13 +82,13 @@ impl Proxy {
         let semaphore = Arc::new(tokio::sync::Semaphore::new(32));
 
         loop {
-            let permit = semaphore.clone().acquire_owned().await;
+            let permit = Arc::clone(&semaphore).acquire_owned().await;
 
             let stream = TcpStream::connect(addr).await?;
             info!("Connect to remote {} success", stream.peer_addr()?);
 
-            let connector = connector.clone();
-            let auth = auth.clone();
+            let connector = Arc::clone(&connector);
+            let auth = Arc::clone(&auth);
 
             tokio::spawn(async move {
                 let stream = tcp::NetStream::from_connector(stream, connector).await;
@@ -125,8 +125,8 @@ impl Proxy {
             let (stream2, client_addr2) = r2?;
             info!("Accept connection from {}", client_addr2);
 
-            let acceptor1 = acceptor1.clone();
-            let acceptor2 = acceptor2.clone();
+            let acceptor1 = Arc::clone(&acceptor1);
+            let acceptor2 = Arc::clone(&acceptor2);
 
             tokio::spawn(async move {
                 let stream1 = tcp::NetStream::from_acceptor(stream1, acceptor1).await;
@@ -166,8 +166,8 @@ impl Proxy {
             let remote_addr = remote_stream.peer_addr()?;
             info!("Connect to remote {} success", remote_addr);
 
-            let connector = connector.clone();
-            let auth = auth.clone();
+            let connector = Arc::clone(&connector);
+            let auth = Arc::clone(&auth);
 
             tokio::spawn(async move {
                 let client_stream = tcp::NetStream::Tcp(client_stream);
@@ -175,7 +175,7 @@ impl Proxy {
 
                 info!("Open pipe: {} <=> {}", client_addr, remote_addr);
                 if let Err(e) =
-                    socks::handle_socks_forward(client_stream, remote_stream, auth.clone()).await
+                    socks::handle_socks_forward(client_stream, remote_stream, auth).await
                 {
                     error!("Failed to handle forward: {}", e);
                 }
