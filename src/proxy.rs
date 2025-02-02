@@ -1,4 +1,7 @@
-use std::{io::Result, sync::Arc};
+use std::{
+    io::{Error, ErrorKind, Result},
+    sync::Arc,
+};
 
 use tokio::{
     join,
@@ -8,21 +11,21 @@ use tracing::{error, info};
 
 use crate::{
     crypto,
-    socks::{handle_connection, AuthInfo},
+    socks::{self, handle_socks_connection, SocksAuth},
     tcp::{self},
 };
 
 pub struct Proxy {
     locals: Vec<(String, bool)>,
     remote: Option<(String, bool)>,
-    auth: Option<AuthInfo>,
+    auth: Option<SocksAuth>,
 }
 
 impl Proxy {
     pub fn new(
         locals: Vec<(String, bool)>,
         remote: Option<(String, bool)>,
-        auth: Option<AuthInfo>,
+        auth: Option<SocksAuth>,
     ) -> Self {
         Self {
             locals,
@@ -36,6 +39,7 @@ impl Proxy {
             (1, None) => self.socks_server().await?,
             (2, None) => self.socks_reverse_server().await?,
             (0, Some(_)) => self.socks_reverse_client().await?,
+            (1, Some(_)) => self.socks_forward().await?,
             _ => error!("Invalid proxy parameters"),
         }
 
@@ -55,13 +59,13 @@ impl Proxy {
             let (stream, client_addr) = listener.accept().await?;
             info!("Accept connection from {}", client_addr);
 
-            let acceptor = acceptor.clone();
-            let auth = auth.clone();
+            let acceptor = Arc::clone(&acceptor);
+            let auth = Arc::clone(&auth);
 
             tokio::spawn(async move {
                 let stream = tcp::NetStream::from_acceptor(stream, acceptor).await;
 
-                if let Err(e) = handle_connection(stream, auth.as_ref()).await {
+                if let Err(e) = handle_socks_connection(stream, auth.as_ref()).await {
                     error!("Failed to handle connection: {}", e);
                 }
             });
@@ -78,18 +82,18 @@ impl Proxy {
         let semaphore = Arc::new(tokio::sync::Semaphore::new(32));
 
         loop {
-            let permit = semaphore.clone().acquire_owned().await;
+            let permit = Arc::clone(&semaphore).acquire_owned().await;
 
             let stream = TcpStream::connect(addr).await?;
             info!("Connect to remote {} success", stream.peer_addr()?);
 
-            let connector = connector.clone();
-            let auth = auth.clone();
+            let connector = Arc::clone(&connector);
+            let auth = Arc::clone(&auth);
 
             tokio::spawn(async move {
                 let stream = tcp::NetStream::from_connector(stream, connector).await;
 
-                if let Err(e) = handle_connection(stream, auth.as_ref()).await {
+                if let Err(e) = handle_socks_connection(stream, auth.as_ref()).await {
                     error!("Failed to handle connection: {}", e);
                 }
 
@@ -121,8 +125,8 @@ impl Proxy {
             let (stream2, client_addr2) = r2?;
             info!("Accept connection from {}", client_addr2);
 
-            let acceptor1 = acceptor1.clone();
-            let acceptor2 = acceptor2.clone();
+            let acceptor1 = Arc::clone(&acceptor1);
+            let acceptor2 = Arc::clone(&acceptor2);
 
             tokio::spawn(async move {
                 let stream1 = tcp::NetStream::from_acceptor(stream1, acceptor1).await;
@@ -133,6 +137,49 @@ impl Proxy {
                     error!("Failed to handle forward: {}", e);
                 }
                 info!("Close pipe: {} <=> {}", client_addr1, client_addr2);
+            });
+        }
+    }
+
+    async fn socks_forward(&self) -> Result<()> {
+        let (local_addr, _) = &self.locals[0];
+        let (remote_addr, remote_ssl) = self.remote.as_ref().unwrap();
+
+        let Some(auth) = self.auth.clone() else {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "Username and password are required",
+            ));
+        };
+
+        let listener = TcpListener::bind(local_addr).await?;
+        info!("Bind to {} success", listener.local_addr()?);
+
+        let connector = Arc::new(remote_ssl.then(|| crypto::get_tls_connector()));
+        let auth = Arc::new(auth);
+
+        loop {
+            let (client_stream, client_addr) = listener.accept().await?;
+            info!("Accept connection from {}", client_addr);
+
+            let remote_stream = TcpStream::connect(remote_addr).await?;
+            let remote_addr = remote_stream.peer_addr()?;
+            info!("Connect to remote {} success", remote_addr);
+
+            let connector = Arc::clone(&connector);
+            let auth = Arc::clone(&auth);
+
+            tokio::spawn(async move {
+                let client_stream = tcp::NetStream::Tcp(client_stream);
+                let remote_stream = tcp::NetStream::from_connector(remote_stream, connector).await;
+
+                info!("Open pipe: {} <=> {}", client_addr, remote_addr);
+                if let Err(e) =
+                    socks::handle_socks_forward(client_stream, remote_stream, auth).await
+                {
+                    error!("Failed to handle forward: {}", e);
+                }
+                info!("Close pipe: {} <=> {}", client_addr, remote_addr);
             });
         }
     }

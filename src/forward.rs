@@ -101,8 +101,8 @@ impl Forward {
             let (stream2, client_addr2) = r2?;
             info!("Accept connection from {}", client_addr2);
 
-            let acceptor1 = acceptor1.clone();
-            let acceptor2 = acceptor2.clone();
+            let acceptor1 = Arc::clone(&acceptor1);
+            let acceptor2 = Arc::clone(&acceptor2);
 
             tokio::spawn(async move {
                 let stream1 = tcp::NetStream::from_acceptor(stream1, acceptor1).await;
@@ -135,8 +135,8 @@ impl Forward {
             let remote_addr = remote_stream.peer_addr()?;
             info!("Connect to {} success", remote_addr);
 
-            let acceptor = acceptor.clone();
-            let connector = connector.clone();
+            let acceptor = Arc::clone(&acceptor);
+            let connector = Arc::clone(&connector);
 
             tokio::spawn(async move {
                 let client_stream = tcp::NetStream::from_acceptor(client_stream, acceptor).await;
@@ -162,7 +162,7 @@ impl Forward {
         let semaphore = Arc::new(sync::Semaphore::new(32));
 
         loop {
-            let permit = semaphore.clone().acquire_owned().await.unwrap();
+            let permit = Arc::clone(&semaphore).acquire_owned().await.unwrap();
 
             let (r1, r2) = join!(TcpStream::connect(addr1), TcpStream::connect(addr2));
 
@@ -174,8 +174,8 @@ impl Forward {
             let addr2 = stream2.peer_addr()?;
             info!("Connect to {} success", addr2);
 
-            let connector1 = connector1.clone();
-            let connector2 = connector2.clone();
+            let connector1 = Arc::clone(&connector1);
+            let connector2 = Arc::clone(&connector2);
 
             tokio::spawn(async move {
                 let stream1 = tcp::NetStream::from_connector(stream1, connector1).await;
@@ -210,7 +210,7 @@ impl Forward {
             let unix_stream = UnixStream::connect(&unix_socket).await?;
             info!("Connect to {} success", unix_socket);
 
-            let acceptor = acceptor.clone();
+            let acceptor = Arc::clone(&acceptor);
 
             tokio::spawn(async move {
                 let tcp_stream = tcp::NetStream::from_acceptor(tcp_stream, acceptor).await;
@@ -235,7 +235,7 @@ impl Forward {
         let semaphore = Arc::new(sync::Semaphore::new(32));
 
         loop {
-            let permit = semaphore.clone().acquire_owned().await.unwrap();
+            let permit = Arc::clone(&semaphore).acquire_owned().await.unwrap();
 
             let unix_socket = self.socket.clone().unwrap();
             let addr = addr.clone();
@@ -248,7 +248,7 @@ impl Forward {
             let tcp_stream = r2?;
             info!("Connect to {} success", addr);
 
-            let connector = connector.clone();
+            let connector = Arc::clone(&connector);
 
             tokio::spawn(async move {
                 let unix_stream = tcp::NetStream::Unix(unix_stream);

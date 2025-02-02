@@ -264,6 +264,20 @@ To enable authentication, simply add `user:pass` after the `-a` flag.
 # the random username and password will be output to the console
 ```
 
+`pivot-rs` supports forwarding unauthenticated socks requests to authenticated socks proxies
+
+*Currently, Chrome, Edge and FireFox browsers do not support authenticated socks proxies, so this method can be used to bypass restrictions while ensuring the security of socks proxies*
+
+```bash
+# vps:1080 requires authentication (user:pass)
+
+# listen to port 1080 and forward socks requests to vps:1080 with authentication
+./pivot proxy -l 1080 -r vps:1080 -a user:pass
+
+# now the browser can use 127.0.0.1:1080 as a socks proxy (no authentication required)
+# authentication info will be forwarded automatically
+```
+
 ### TLS Encryption
 
 TLS encryption is supported for TCP, Unix domain socket forwarding and socks proxy.
