@@ -266,7 +266,7 @@ curl http://vps:5555/version
 
 `pivot-rs` 支持将无身份验证的 Socks 请求转发至带有身份验证的 Socks 代理
 
-*目前 Chrome, Edge 和 FireFox 浏览器均不支持带有身份验证的 Socks 代理, 因此可以使用这种方式绕过限制, 同时确保 Socks 代理的安全性*
+*目前 Chrome, Edge 和 FireFox 浏览器均不支持带有身份验证的 Socks 代理, 因此可以使用这种方式绕过限制, 同时确保 Socks 代理的安全性.*
 
 ```bash
 # vps:1080 需要身份验证 (user:pass)

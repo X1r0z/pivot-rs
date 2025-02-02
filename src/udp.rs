@@ -1,11 +1,10 @@
-use std::io::Result;
-
+use anyhow::Result;
 use tokio::{net::UdpSocket, select};
 use tracing::{error, info};
 
 const BUFFER_SIZE: usize = 65535;
 
-pub async fn handle_local_forward(socket1: UdpSocket, socket2: UdpSocket) -> Result<()> {
+pub async fn local_forward(socket1: UdpSocket, socket2: UdpSocket) -> Result<()> {
     let mut buf1 = vec![0u8; BUFFER_SIZE];
     let mut buf2 = vec![0u8; BUFFER_SIZE];
 
@@ -21,7 +20,7 @@ pub async fn handle_local_forward(socket1: UdpSocket, socket2: UdpSocket) -> Res
         }
         Err(e) => {
             error!("Failed to handshake with client address: {}", e);
-            return Err(e);
+            return Err(e.into());
         }
     }
 
@@ -57,7 +56,7 @@ pub async fn handle_local_forward(socket1: UdpSocket, socket2: UdpSocket) -> Res
     }
 }
 
-pub async fn handle_local_to_remote_forward(
+pub async fn local_to_remote_forward(
     local_socket: UdpSocket,
     remote_socket: UdpSocket,
 ) -> Result<()> {
@@ -68,7 +67,7 @@ pub async fn handle_local_to_remote_forward(
     // the unused packet may be sent to the real udp service (which will be forwarded)
     if let Err(e) = remote_socket.send(&[0u8; 4]).await {
         error!("Failed to handshake with remote address: {}", e);
-        return Err(e);
+        return Err(e.into());
     } else {
         info!(
             "Handshake with remote address {} success",
@@ -104,11 +103,11 @@ pub async fn handle_local_to_remote_forward(
     }
 }
 
-pub async fn handle_remote_forward(socket1: UdpSocket, socket2: UdpSocket) -> Result<()> {
+pub async fn remote_forward(socket1: UdpSocket, socket2: UdpSocket) -> Result<()> {
     // handshake to keep the client address
     if let Err(e) = socket2.send(&[0u8; 4]).await {
         error!("Failed to handshake with remote address: {}", e);
-        return Err(e);
+        return Err(e.into());
     } else {
         info!(
             "Handshake with remote address {} success",

@@ -1,6 +1,6 @@
-use std::io::Result;
 use std::sync::Arc;
 
+use anyhow::Result;
 use rustls::pki_types::ServerName;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::{io, net::TcpStream, select};
@@ -66,14 +66,14 @@ impl NetStream {
     }
 }
 
-pub async fn handle_forward(stream1: NetStream, stream2: NetStream) -> Result<()> {
+pub async fn forward(stream1: NetStream, stream2: NetStream) -> Result<()> {
     let (r1, w1) = stream1.split();
     let (r2, w2) = stream2.split();
 
-    handle_split_forward((r1, w1), (r2, w2)).await
+    split_forward((r1, w1), (r2, w2)).await
 }
 
-pub async fn handle_split_forward(
+pub async fn split_forward(
     (mut r1, mut w1): (
         Box<dyn AsyncRead + Unpin + Send>,
         Box<dyn AsyncWrite + Unpin + Send>,

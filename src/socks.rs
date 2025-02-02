@@ -1,8 +1,6 @@
-use std::{
-    io::{Error, Result},
-    sync::Arc,
-};
+use std::sync::Arc;
 
+use anyhow::{anyhow, Result};
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpStream,
@@ -15,19 +13,19 @@ use crate::{
 };
 
 #[derive(Clone)]
-pub struct SocksAuth {
-    pub user: String,
-    pub pass: String,
+pub struct UserPassAuth {
+    user: String,
+    pass: String,
 }
 
 struct SocksRequest {
     cmd: u8,
     atyp: u8,
-    dest_addr: Vec<u8>,
-    dest_port: u16,
+    addr: Vec<u8>,
+    port: u16,
 }
 
-impl SocksAuth {
+impl UserPassAuth {
     pub fn new(s: String) -> Self {
         let mut split = s.split(':');
 
@@ -48,121 +46,150 @@ impl SocksAuth {
     }
 }
 
-pub async fn handle_socks_connection(
+impl SocksRequest {
+    pub fn parse_addr(&self) -> String {
+        match self.atyp {
+            0x01 => {
+                // IPv4
+                format!(
+                    "{}:{}",
+                    self.addr
+                        .iter()
+                        .map(|x| x.to_string())
+                        .collect::<Vec<String>>()
+                        .join("."),
+                    self.port
+                )
+            }
+            0x03 => {
+                // domain
+                format!("{}:{}", String::from_utf8_lossy(&self.addr[1..]), self.port)
+            }
+            0x04 => {
+                // IPv6
+                format!(
+                    "{}:{}",
+                    self.addr
+                        .iter()
+                        .map(|x| format!("{:x}", x))
+                        .collect::<Vec<String>>()
+                        .join(":"),
+                    self.port
+                )
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+pub async fn handle_connection(
     client_stream: NetStream,
-    auth: &Option<SocksAuth>,
+    auth: &Option<UserPassAuth>,
 ) -> Result<()> {
     let (mut cr, mut cw) = client_stream.split();
 
     // handshake
-    let mut handshake = [0u8; 2];
-    cr.read_exact(&mut handshake).await?;
+    let methods = socks_read_handshake(&mut cr).await?;
 
-    if handshake[0] != 0x05 {
-        return Err(Error::new(
-            std::io::ErrorKind::Unsupported,
-            "Only support SOCKS5 protocol",
-        ));
-    }
-
-    let nmethods = handshake[1] as usize;
-    let mut methods = vec![0u8; nmethods];
-    cr.read_exact(&mut methods).await?;
-
-    match auth {
-        Some(auth) => {
-            // check username and password authentication
-            handle_socks_auth(&mut cr, &mut cw, methods, auth).await?;
-        }
-        None => {
-            // no auth required
-            cw.write_all(&[0x05, 0x00]).await?;
-        }
-    }
+    // authentication
+    socks_authenticate(&mut cr, &mut cw, methods, auth).await?;
 
     // read socks request
-    let request = read_socks_request(&mut cr).await?;
-    let addr = format_addr(request.atyp, &request.dest_addr, request.dest_port);
+    let request = socks_read_request(&mut cr).await?;
 
     // connect to the target server
-    let remote_stream = NetStream::Tcp(match TcpStream::connect(&addr).await {
-        Ok(stream) => stream,
-        Err(e) => {
-            cw.write_all(&[0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
-                .await?;
-            return Err(e.into());
-        }
-    });
-
-    // send success response
-    cw.write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
-        .await?;
-
-    let (rr, rw) = remote_stream.split();
+    let remote_stream = socks_connect(&mut cw, request.parse_addr()).await?;
 
     // forward data
-    tcp::handle_split_forward((cr, cw), (rr, rw)).await
+    tcp::split_forward((cr, cw), remote_stream.split()).await
 }
 
-pub async fn handle_socks_forward(
+pub async fn handle_forwarding(
     client_stream: NetStream,
     remote_stream: NetStream,
-    auth: Arc<SocksAuth>,
+    auth: Arc<UserPassAuth>,
 ) -> Result<()> {
     let (mut cr, mut cw) = client_stream.split();
     let (mut rr, mut rw) = remote_stream.split();
 
     // handshake
-    let mut handshake = [0u8; 2];
-    cr.read_exact(&mut handshake).await?;
-
-    if handshake[0] != 0x05 {
-        return Err(Error::new(
-            std::io::ErrorKind::Unsupported,
-            "Only support SOCKS5 protocol",
-        ));
-    }
-
-    let nmethods = handshake[1] as usize;
-    let mut methods = vec![0u8; nmethods];
-    cr.read_exact(&mut methods).await?;
+    let methods = socks_read_handshake(&mut cr).await?;
 
     // no auth required
-    cw.write_all(&[0x05, 0x00]).await?;
+    socks_authenticate(&mut cr, &mut cw, methods, &None).await?;
 
-    // read socks request
-    let request = read_socks_request(&mut cr).await?;
+    // read socks message
+    let request = socks_read_request(&mut cr).await?;
 
     // send handshake with remote proxy
-    send_socks_handshake(&mut rr, &mut rw, &auth).await?;
+    socks_send_handshake(&mut rr, &mut rw, &auth).await?;
 
     // send request to remote proxy
-    send_socks_request(&mut rw, request).await?;
+    socks_send_request(&mut rw, request).await?;
 
-    // read reply from remote proxy
-    let reply = read_socks_reply(&mut rr).await?;
-
-    // send reply to client
-    cw.write_all(&reply).await?;
+    // read response from remote proxy and send to client
+    let response = socks_read_response(&mut rr).await?;
+    cw.write_all(&response).await?;
 
     // forward data
-    tcp::handle_split_forward((cr, cw), (rr, rw)).await?;
-
-    Ok(())
+    tcp::split_forward((cr, cw), (rr, rw)).await
 }
 
-async fn handle_socks_auth(
+async fn socks_connect(
+    writer: &mut Box<dyn AsyncWrite + Unpin + Send>,
+    addr: String,
+) -> Result<NetStream> {
+    let stream = match TcpStream::connect(addr).await {
+        Ok(stream) => {
+            // send success response
+            writer
+                .write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
+                .await?;
+            stream
+        }
+        Err(e) => {
+            // send error response
+            writer
+                .write_all(&[0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
+                .await?;
+            return Err(e.into());
+        }
+    };
+
+    Ok(NetStream::Tcp(stream))
+}
+
+async fn socks_read_handshake(reader: &mut Box<dyn AsyncRead + Unpin + Send>) -> Result<Vec<u8>> {
+    let mut header = [0u8; 2];
+    reader.read_exact(&mut header).await?;
+
+    let [ver, nmethods] = header;
+
+    if ver != 0x05 {
+        return Err(anyhow!("Only support SOCKS5 protocol"));
+    }
+
+    let mut methods = vec![0u8; nmethods as usize];
+    reader.read_exact(&mut methods).await?;
+
+    Ok(methods)
+}
+
+async fn socks_authenticate(
     reader: &mut Box<dyn AsyncRead + Unpin + Send>,
     writer: &mut Box<dyn AsyncWrite + Unpin + Send>,
     methods: Vec<u8>,
-    auth: &SocksAuth,
+    auth: &Option<UserPassAuth>,
 ) -> Result<()> {
+    let Some(auth) = auth else {
+        // no auth required
+        writer.write_all(&[0x05, 0x00]).await?;
+        return Ok(());
+    };
+
     if !methods.contains(&0x02) {
         writer.write_all(&[0x05, 0xff]).await?;
-        return Err(Error::new(
-            std::io::ErrorKind::InvalidData,
-            "No supported authentication method",
-        ));
+        return Err(anyhow!("No supported authentication method"));
     }
 
     writer.write_all(&[0x05, 0x02]).await?;
@@ -171,10 +198,7 @@ async fn handle_socks_auth(
     reader.read_exact(&mut auth_buf).await?;
 
     if auth_buf[0] != 0x01 {
-        return Err(Error::new(
-            std::io::ErrorKind::InvalidData,
-            "Invalid authentication version",
-        ));
+        return Err(anyhow!("Invalid authentication version"));
     }
 
     // read user
@@ -195,39 +219,29 @@ async fn handle_socks_auth(
         writer.write_all(&[0x01, 0x00]).await?;
     } else {
         writer.write_all(&[0x01, 0x01]).await?;
-        return Err(Error::new(
-            std::io::ErrorKind::PermissionDenied,
-            "Authentication failed",
-        ));
+        return Err(anyhow!("Authentication failed"));
     }
 
     Ok(())
 }
 
-async fn read_socks_request(
+async fn socks_read_request(
     reader: &mut Box<dyn AsyncRead + Unpin + Send>,
 ) -> Result<SocksRequest> {
     let mut header = [0u8; 4];
     reader.read_exact(&mut header).await?;
 
-    if header[0] != 0x05 {
-        return Err(Error::new(
-            std::io::ErrorKind::InvalidData,
-            "Invalid SOCKS5 request",
-        ));
-    }
+    let [ver, cmd, _, atyp] = header;
 
-    let cmd = header[1];
-    let atyp = header[3];
+    if ver != 0x05 {
+        return Err(anyhow!("Invalid SOCKS5 version"));
+    }
 
     if cmd != 0x01 {
-        return Err(Error::new(
-            std::io::ErrorKind::Unsupported,
-            "Only CONNECT command supported",
-        ));
+        return Err(anyhow!("Only CONNECT command is supported"));
     }
 
-    let dest_addr = match atyp {
+    let addr = match atyp {
         0x01 => {
             // IPv4
             let mut addr = [0u8; 4];
@@ -252,29 +266,26 @@ async fn read_socks_request(
             addr.to_vec()
         }
         _ => {
-            return Err(Error::new(
-                std::io::ErrorKind::Unsupported,
-                "Unsupported address type",
-            ))
+            return Err(anyhow!("Unsupported address type"));
         }
     };
 
     let mut port_buf = [0u8; 2];
     reader.read_exact(&mut port_buf).await?;
-    let dest_port = u16::from_be_bytes(port_buf);
+    let port = u16::from_be_bytes(port_buf);
 
     Ok(SocksRequest {
         cmd,
         atyp,
-        dest_addr,
-        dest_port,
+        addr,
+        port,
     })
 }
 
-async fn send_socks_handshake(
+async fn socks_send_handshake(
     reader: &mut Box<dyn AsyncRead + Unpin + Send>,
     writer: &mut Box<dyn AsyncWrite + Unpin + Send>,
-    auth: &SocksAuth,
+    auth: &UserPassAuth,
 ) -> Result<()> {
     // send handshake
     writer.write_all(&[0x05, 0x01, 0x02]).await?;
@@ -283,9 +294,8 @@ async fn send_socks_handshake(
     reader.read_exact(&mut response).await?;
 
     if response[0] != 0x05 || response[1] != 0x02 {
-        return Err(Error::new(
-            std::io::ErrorKind::PermissionDenied,
-            "Remote proxy does not support username/password authentication",
+        return Err(anyhow!(
+            "Remote proxy does not support username/password authentication"
         ));
     }
 
@@ -308,33 +318,32 @@ async fn send_socks_handshake(
     reader.read_exact(&mut auth_resp).await?;
 
     if auth_resp[1] != 0 {
-        return Err(Error::new(
-            std::io::ErrorKind::PermissionDenied,
-            "Remote proxy username/password authentication failed",
+        return Err(anyhow!(
+            "Remote proxy username/password authentication failed"
         ));
     }
 
     Ok(())
 }
 
-async fn send_socks_request(
+async fn socks_send_request(
     writer: &mut Box<dyn AsyncWrite + Unpin + Send>,
     request: SocksRequest,
 ) -> Result<()> {
     writer
         .write_all(&[0x05, request.cmd, 0x00, request.atyp])
         .await?;
-    writer.write_all(&request.dest_addr).await?;
-    writer.write_all(&request.dest_port.to_be_bytes()).await?;
+    writer.write_all(&request.addr).await?;
+    writer.write_all(&request.port.to_be_bytes()).await?;
     Ok(())
 }
 
-async fn read_socks_reply(reader: &mut Box<dyn AsyncRead + Unpin + Send>) -> Result<Vec<u8>> {
-    let mut reply = Vec::new();
+async fn socks_read_response(reader: &mut Box<dyn AsyncRead + Unpin + Send>) -> Result<Vec<u8>> {
+    let mut response = Vec::new();
 
     let mut header = [0u8; 4];
     reader.read_exact(&mut header).await?;
-    reply.extend_from_slice(&header);
+    response.extend_from_slice(&header);
 
     let atyp = header[3];
     let addr_len = match atyp {
@@ -343,54 +352,22 @@ async fn read_socks_reply(reader: &mut Box<dyn AsyncRead + Unpin + Send>) -> Res
             // domain
             let mut len_buf = [0u8; 1];
             reader.read_exact(&mut len_buf).await?;
-            reply.push(len_buf[0]);
+            response.push(len_buf[0]);
             len_buf[0] as usize
         }
         0x04 => 16, // IPv6
         _ => {
-            return Err(Error::new(
-                std::io::ErrorKind::InvalidData,
-                "Invalid address type",
-            ))
+            return Err(anyhow!("Invalid address type"));
         }
     };
 
     let mut addr = vec![0u8; addr_len];
     reader.read_exact(&mut addr).await?;
-    reply.extend_from_slice(&addr);
+    response.extend_from_slice(&addr);
 
     let mut port_buf = [0u8; 2];
     reader.read_exact(&mut port_buf).await?;
-    reply.extend_from_slice(&port_buf);
+    response.extend_from_slice(&port_buf);
 
-    Ok(reply)
-}
-
-fn format_addr(atyp: u8, addr: &[u8], port: u16) -> String {
-    match atyp {
-        0x01 => {
-            // IPv4
-            format!(
-                "{}:{}",
-                format!("{}.{}.{}.{}", addr[0], addr[1], addr[2], addr[3]),
-                port
-            )
-        }
-        0x03 => {
-            // domain
-            format!("{}:{}", String::from_utf8_lossy(&addr[1..]), port)
-        }
-        0x04 => {
-            // IPv6
-            format!(
-                "{}:{}",
-                format!(
-                    "{:x}:{:x}:{:x}:{:x}:{:x}:{:x}:{:x}:{:x}",
-                    addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7],
-                ),
-                port
-            )
-        }
-        _ => unreachable!(),
-    }
+    Ok(response)
 }

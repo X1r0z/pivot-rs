@@ -1,5 +1,6 @@
-use std::{io::Result, sync::Arc};
+use std::sync::Arc;
 
+use anyhow::Result;
 use tokio::{
     join,
     net::{TcpListener, TcpStream, UdpSocket},
@@ -109,7 +110,7 @@ impl Forward {
                 let stream2 = tcp::NetStream::from_acceptor(stream2, acceptor2).await;
 
                 info!("Open pipe: {} <=> {}", client_addr1, client_addr2);
-                if let Err(e) = tcp::handle_forward(stream1, stream2).await {
+                if let Err(e) = tcp::forward(stream1, stream2).await {
                     error!("Failed to forward: {}", e)
                 }
                 info!("Close pipe: {} <=> {}", client_addr1, client_addr2);
@@ -143,7 +144,7 @@ impl Forward {
                 let remote_stream = tcp::NetStream::from_connector(remote_stream, connector).await;
 
                 info!("Open pipe: {} <=> {}", client_addr, remote_addr);
-                if let Err(e) = tcp::handle_forward(client_stream, remote_stream).await {
+                if let Err(e) = tcp::forward(client_stream, remote_stream).await {
                     error!("failed to forward: {}", e)
                 }
                 info!("Close pipe: {} <=> {}", client_addr, remote_addr);
@@ -182,7 +183,7 @@ impl Forward {
                 let stream2 = tcp::NetStream::from_connector(stream2, connector2).await;
 
                 info!("Open pipe: {} <=> {}", addr1, addr2);
-                if let Err(e) = tcp::handle_forward(stream1, stream2).await {
+                if let Err(e) = tcp::forward(stream1, stream2).await {
                     error!("Failed to forward: {}", e)
                 }
                 info!("Close pipe: {} <=> {}", addr1, addr2);
@@ -217,7 +218,7 @@ impl Forward {
                 let unix_stream = tcp::NetStream::Unix(unix_stream);
 
                 info!("Open pipe: {} <=> {}", unix_socket, client_addr);
-                if let Err(e) = tcp::handle_forward(tcp_stream, unix_stream).await {
+                if let Err(e) = tcp::forward(tcp_stream, unix_stream).await {
                     error!("Failed to forward: {}", e)
                 }
                 info!("Close pipe: {} <=> {}", unix_socket, client_addr);
@@ -255,7 +256,7 @@ impl Forward {
                 let tcp_stream = tcp::NetStream::from_connector(tcp_stream, connector).await;
 
                 info!("Open pipe: {} <=> {}", unix_socket, addr);
-                if let Err(e) = tcp::handle_forward(unix_stream, tcp_stream).await {
+                if let Err(e) = tcp::forward(unix_stream, tcp_stream).await {
                     error!("Failed to forward: {}", e)
                 }
                 info!("Close pipe: {} <=> {}", unix_socket, addr);
@@ -277,7 +278,7 @@ impl Forward {
         info!("Bind to {} success", addr2);
 
         // socket1 will receive the handshake packet to keep client address
-        udp::handle_local_forward(socket1, socket2).await
+        udp::local_forward(socket1, socket2).await
     }
 
     async fn local_to_remote_udp(&self) -> Result<()> {
@@ -290,7 +291,7 @@ impl Forward {
         remote_socket.connect(remote_addr).await?;
         info!("Connect to {} success", remote_addr);
 
-        udp::handle_local_to_remote_forward(local_socket, remote_socket).await
+        udp::local_to_remote_forward(local_socket, remote_socket).await
     }
 
     async fn remote_to_remote_udp(&self) -> Result<()> {
@@ -307,6 +308,6 @@ impl Forward {
         info!("Connect to {} success", addr2);
 
         // socket2 will send the handshake packet to keep client address
-        udp::handle_remote_forward(socket1, socket2).await
+        udp::remote_forward(socket1, socket2).await
     }
 }

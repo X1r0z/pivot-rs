@@ -1,5 +1,4 @@
-use std::io::Result;
-
+use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use forward::Forward;
 use proxy::Proxy;
@@ -86,7 +85,7 @@ enum Mode {
 }
 
 #[derive(Clone, ValueEnum)]
-enum Protocol {
+pub enum Protocol {
     /// TCP Protocol
     Tcp,
     /// UDP Protocol
@@ -131,7 +130,7 @@ pub async fn run(cli: Cli) -> Result<()> {
 
             let locals = util::parse_addrs(locals);
             let remote = util::parse_addr(remote);
-            let auth = auth.map(|v| socks::SocksAuth::new(v));
+            let auth = auth.map(|v| socks::UserPassAuth::new(v));
 
             let proxy = Proxy::new(locals, remote, auth);
             proxy.start().await?;

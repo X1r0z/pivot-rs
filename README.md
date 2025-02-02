@@ -266,7 +266,7 @@ To enable authentication, simply add `user:pass` after the `-a` flag.
 
 `pivot-rs` supports forwarding unauthenticated socks requests to authenticated socks proxies
 
-*Currently, Chrome, Edge and FireFox browsers do not support authenticated socks proxies, so this method can be used to bypass restrictions while ensuring the security of socks proxies*
+*Currently, Chrome, Edge and FireFox browsers do not support authenticated socks proxies, so this method can be used to bypass restrictions while ensuring the security of socks proxies.*
 
 ```bash
 # vps:1080 requires authentication (user:pass)
