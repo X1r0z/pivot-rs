@@ -131,7 +131,7 @@ pub async fn run(cli: Cli) -> Result<()> {
 
             let locals = util::parse_addrs(locals);
             let remote = util::parse_addr(remote);
-            let auth = auth.map(|v| socks::AuthInfo::new(v));
+            let auth = auth.map(|v| socks::SocksAuth::new(v));
 
             let proxy = Proxy::new(locals, remote, auth);
             proxy.start().await?;
