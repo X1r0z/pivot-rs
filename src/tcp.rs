@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use async_smux::MuxStream;
 use rustls::pki_types::ServerName;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::{io, net::TcpStream, select};
@@ -12,21 +13,24 @@ use tokio::net::UnixStream;
 
 pub enum ForwardStream {
     Tcp(TcpStream),
-    #[cfg(target_family = "unix")]
-    Unix(UnixStream),
     ServerTls(server::TlsStream<TcpStream>),
     ClientTls(client::TlsStream<TcpStream>),
+    MuxTcp(MuxStream<TcpStream>),
+    MuxServerTls(server::TlsStream<MuxStream<TcpStream>>),
+    MuxClientTls(client::TlsStream<MuxStream<TcpStream>>),
+    #[cfg(target_family = "unix")]
+    Unix(UnixStream),
 }
 
 impl ForwardStream {
-    pub async fn from_acceptor(stream: TcpStream, acceptor: Arc<Option<TlsAcceptor>>) -> Self {
+    pub async fn server(stream: TcpStream, acceptor: Arc<Option<TlsAcceptor>>) -> Self {
         match acceptor.as_ref() {
             Some(acceptor) => Self::ServerTls(acceptor.accept(stream).await.unwrap()),
             None => Self::Tcp(stream),
         }
     }
 
-    pub async fn from_connector(stream: TcpStream, connector: Arc<Option<TlsConnector>>) -> Self {
+    pub async fn client(stream: TcpStream, connector: Arc<Option<TlsConnector>>) -> Self {
         match connector.as_ref() {
             Some(connector) => Self::ClientTls(
                 connector
@@ -35,6 +39,31 @@ impl ForwardStream {
                     .unwrap(),
             ),
             None => Self::Tcp(stream),
+        }
+    }
+
+    pub async fn mux_server(
+        mux_stream: MuxStream<TcpStream>,
+        acceptor: Arc<Option<TlsAcceptor>>,
+    ) -> Self {
+        match acceptor.as_ref() {
+            Some(acceptor) => Self::MuxServerTls(acceptor.accept(mux_stream).await.unwrap()),
+            None => Self::MuxTcp(mux_stream),
+        }
+    }
+
+    pub async fn mux_client(
+        mux_stream: MuxStream<TcpStream>,
+        connector: Arc<Option<TlsConnector>>,
+    ) -> Self {
+        match connector.as_ref() {
+            Some(connector) => Self::MuxClientTls(
+                connector
+                    .connect(ServerName::try_from("localhost").unwrap(), mux_stream)
+                    .await
+                    .unwrap(),
+            ),
+            None => Self::MuxTcp(mux_stream),
         }
     }
 
@@ -49,16 +78,28 @@ impl ForwardStream {
                 let (r, w) = io::split(stream);
                 (Box::new(r), Box::new(w))
             }
-            #[cfg(target_family = "unix")]
-            ForwardStream::Unix(stream) => {
-                let (r, w) = io::split(stream);
-                (Box::new(r), Box::new(w))
-            }
             ForwardStream::ServerTls(stream) => {
                 let (r, w) = io::split(stream);
                 (Box::new(r), Box::new(w))
             }
             ForwardStream::ClientTls(stream) => {
+                let (r, w) = io::split(stream);
+                (Box::new(r), Box::new(w))
+            }
+            ForwardStream::MuxTcp(stream) => {
+                let (r, w) = io::split(stream);
+                (Box::new(r), Box::new(w))
+            }
+            ForwardStream::MuxServerTls(stream) => {
+                let (r, w) = io::split(stream);
+                (Box::new(r), Box::new(w))
+            }
+            ForwardStream::MuxClientTls(stream) => {
+                let (r, w) = io::split(stream);
+                (Box::new(r), Box::new(w))
+            }
+            #[cfg(target_family = "unix")]
+            ForwardStream::Unix(stream) => {
                 let (r, w) = io::split(stream);
                 (Box::new(r), Box::new(w))
             }

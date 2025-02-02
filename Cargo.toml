@@ -9,6 +9,7 @@ license = "MIT"
 
 [dependencies]
 anyhow = "1.0.95"
+async_smux = "0.3.4"
 clap = { version = "4.5.23", features = ["derive"] }
 rand = "0.8.5"
 rcgen = "0.13.1"

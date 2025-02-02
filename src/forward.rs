@@ -11,7 +11,7 @@ use tracing::{error, info};
 #[cfg(target_family = "unix")]
 use tokio::net::UnixStream;
 
-use crate::{crypto, tcp, udp, Protocol};
+use crate::{crypto, tcp, udp, Protocol, MAX_CONNECTIONS};
 
 pub struct Forward {
     locals: Vec<(String, bool)>,
@@ -96,24 +96,24 @@ impl Forward {
         loop {
             let (r1, r2) = join!(listener1.accept(), listener2.accept());
 
-            let (stream1, client_addr1) = r1?;
-            info!("Accept connection from {}", client_addr1);
+            let (stream1, addr1) = r1?;
+            info!("Accept connection from {}", addr1);
 
-            let (stream2, client_addr2) = r2?;
-            info!("Accept connection from {}", client_addr2);
+            let (stream2, addr2) = r2?;
+            info!("Accept connection from {}", addr2);
 
             let acceptor1 = Arc::clone(&acceptor1);
             let acceptor2 = Arc::clone(&acceptor2);
 
             tokio::spawn(async move {
-                let stream1 = tcp::ForwardStream::from_acceptor(stream1, acceptor1).await;
-                let stream2 = tcp::ForwardStream::from_acceptor(stream2, acceptor2).await;
+                let stream1 = tcp::ForwardStream::server(stream1, acceptor1).await;
+                let stream2 = tcp::ForwardStream::server(stream2, acceptor2).await;
 
-                info!("Open pipe: {} <=> {}", client_addr1, client_addr2);
+                info!("Open pipe: {} <=> {}", addr1, addr2);
                 if let Err(e) = tcp::forward(stream1, stream2).await {
                     error!("Failed to forward: {}", e)
                 }
-                info!("Close pipe: {} <=> {}", client_addr1, client_addr2);
+                info!("Close pipe: {} <=> {}", addr1, addr2);
             });
         }
     }
@@ -140,10 +140,8 @@ impl Forward {
             let connector = Arc::clone(&connector);
 
             tokio::spawn(async move {
-                let client_stream =
-                    tcp::ForwardStream::from_acceptor(client_stream, acceptor).await;
-                let remote_stream =
-                    tcp::ForwardStream::from_connector(remote_stream, connector).await;
+                let client_stream = tcp::ForwardStream::server(client_stream, acceptor).await;
+                let remote_stream = tcp::ForwardStream::client(remote_stream, connector).await;
 
                 info!("Open pipe: {} <=> {}", client_addr, remote_addr);
                 if let Err(e) = tcp::forward(client_stream, remote_stream).await {
@@ -162,7 +160,7 @@ impl Forward {
         let connector2 = Arc::new(ssl2.then(|| crypto::get_tls_connector()));
 
         // limit the number of concurrent connections
-        let semaphore = Arc::new(sync::Semaphore::new(32));
+        let semaphore = Arc::new(sync::Semaphore::new(MAX_CONNECTIONS));
 
         loop {
             let permit = Arc::clone(&semaphore).acquire_owned().await.unwrap();
@@ -181,8 +179,8 @@ impl Forward {
             let connector2 = Arc::clone(&connector2);
 
             tokio::spawn(async move {
-                let stream1 = tcp::ForwardStream::from_connector(stream1, connector1).await;
-                let stream2 = tcp::ForwardStream::from_connector(stream2, connector2).await;
+                let stream1 = tcp::ForwardStream::client(stream1, connector1).await;
+                let stream2 = tcp::ForwardStream::client(stream2, connector2).await;
 
                 info!("Open pipe: {} <=> {}", addr1, addr2);
                 if let Err(e) = tcp::forward(stream1, stream2).await {
@@ -216,7 +214,7 @@ impl Forward {
             let acceptor = Arc::clone(&acceptor);
 
             tokio::spawn(async move {
-                let tcp_stream = tcp::ForwardStream::from_acceptor(tcp_stream, acceptor).await;
+                let tcp_stream = tcp::ForwardStream::server(tcp_stream, acceptor).await;
                 let unix_stream = tcp::ForwardStream::Unix(unix_stream);
 
                 info!("Open pipe: {} <=> {}", unix_socket, client_addr);
@@ -235,7 +233,7 @@ impl Forward {
         let connector = Arc::new(ssl.then(|| crypto::get_tls_connector()));
 
         // limit the number of concurrent connections
-        let semaphore = Arc::new(sync::Semaphore::new(32));
+        let semaphore = Arc::new(sync::Semaphore::new(MAX_CONNECTIONS));
 
         loop {
             let permit = Arc::clone(&semaphore).acquire_owned().await.unwrap();
@@ -255,7 +253,7 @@ impl Forward {
 
             tokio::spawn(async move {
                 let unix_stream = tcp::ForwardStream::Unix(unix_stream);
-                let tcp_stream = tcp::ForwardStream::from_connector(tcp_stream, connector).await;
+                let tcp_stream = tcp::ForwardStream::client(tcp_stream, connector).await;
 
                 info!("Open pipe: {} <=> {}", unix_socket, addr);
                 if let Err(e) = tcp::forward(unix_stream, tcp_stream).await {

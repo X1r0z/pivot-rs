@@ -47,7 +47,7 @@ impl UserPassAuth {
 }
 
 impl SocksRequest {
-    pub fn parse_addr(&self) -> String {
+    fn parse_addr(&self) -> String {
         match self.atyp {
             0x01 => {
                 // IPv4
