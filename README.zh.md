@@ -163,7 +163,7 @@ Options:
 
 UDP 的端口转发与 TCP 类似, 只需要添加 `-p udp` 参数.
 
-**目前这个功能还在实验性阶段, 可能不太稳定.**
+**目前该功能还在实验性阶段, 可能不太稳定.**
 
 注意在**反向** UDP 端口转发时, 会通过发送 handshake 握手包的形式来记住客户端地址.
 
@@ -200,7 +200,7 @@ UDP 的端口转发与 TCP 类似, 只需要添加 `-p udp` 参数.
 
 ### Unix domain socket 转发
 
-*这个特性仅支持 Linux 和 macOS*
+*该特性仅支持 Linux 和 macOS*
 
 Unix domain socket 是一种 IPC (Inter-Process Communication, 进程间通信) 手段, 允许运行在同一台机器上的不同进程之间进行数据交换.
 
@@ -340,7 +340,7 @@ TLS 加密支持 TCP 端口转发, Unix domain socket 转发和 Socks 代理.
 
 `-r` 指定连接到复用地址后重定向的远程地址
 
-`-f` 指定一个 fallback 地址, 当来源与 external 地址不匹配时就会连接到这个地址 (例如普通用户的连接请求)
+`-f` 指定一个 fallback 地址, 当来源与 external 地址不匹配时就会连接到该地址 (例如普通用户的连接请求)
 
 `-e` 指定一个 external 地址, 即攻击者的公网 IP, 仅此地址会走端口复用的流程
 

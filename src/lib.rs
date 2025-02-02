@@ -85,7 +85,7 @@ enum Mode {
 }
 
 #[derive(Clone, ValueEnum)]
-pub enum Protocol {
+enum Protocol {
     /// TCP Protocol
     Tcp,
     /// UDP Protocol

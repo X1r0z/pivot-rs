@@ -106,8 +106,8 @@ impl Forward {
             let acceptor2 = Arc::clone(&acceptor2);
 
             tokio::spawn(async move {
-                let stream1 = tcp::NetStream::from_acceptor(stream1, acceptor1).await;
-                let stream2 = tcp::NetStream::from_acceptor(stream2, acceptor2).await;
+                let stream1 = tcp::ForwardStream::from_acceptor(stream1, acceptor1).await;
+                let stream2 = tcp::ForwardStream::from_acceptor(stream2, acceptor2).await;
 
                 info!("Open pipe: {} <=> {}", client_addr1, client_addr2);
                 if let Err(e) = tcp::forward(stream1, stream2).await {
@@ -140,8 +140,10 @@ impl Forward {
             let connector = Arc::clone(&connector);
 
             tokio::spawn(async move {
-                let client_stream = tcp::NetStream::from_acceptor(client_stream, acceptor).await;
-                let remote_stream = tcp::NetStream::from_connector(remote_stream, connector).await;
+                let client_stream =
+                    tcp::ForwardStream::from_acceptor(client_stream, acceptor).await;
+                let remote_stream =
+                    tcp::ForwardStream::from_connector(remote_stream, connector).await;
 
                 info!("Open pipe: {} <=> {}", client_addr, remote_addr);
                 if let Err(e) = tcp::forward(client_stream, remote_stream).await {
@@ -179,8 +181,8 @@ impl Forward {
             let connector2 = Arc::clone(&connector2);
 
             tokio::spawn(async move {
-                let stream1 = tcp::NetStream::from_connector(stream1, connector1).await;
-                let stream2 = tcp::NetStream::from_connector(stream2, connector2).await;
+                let stream1 = tcp::ForwardStream::from_connector(stream1, connector1).await;
+                let stream2 = tcp::ForwardStream::from_connector(stream2, connector2).await;
 
                 info!("Open pipe: {} <=> {}", addr1, addr2);
                 if let Err(e) = tcp::forward(stream1, stream2).await {
@@ -214,8 +216,8 @@ impl Forward {
             let acceptor = Arc::clone(&acceptor);
 
             tokio::spawn(async move {
-                let tcp_stream = tcp::NetStream::from_acceptor(tcp_stream, acceptor).await;
-                let unix_stream = tcp::NetStream::Unix(unix_stream);
+                let tcp_stream = tcp::ForwardStream::from_acceptor(tcp_stream, acceptor).await;
+                let unix_stream = tcp::ForwardStream::Unix(unix_stream);
 
                 info!("Open pipe: {} <=> {}", unix_socket, client_addr);
                 if let Err(e) = tcp::forward(tcp_stream, unix_stream).await {
@@ -252,8 +254,8 @@ impl Forward {
             let connector = Arc::clone(&connector);
 
             tokio::spawn(async move {
-                let unix_stream = tcp::NetStream::Unix(unix_stream);
-                let tcp_stream = tcp::NetStream::from_connector(tcp_stream, connector).await;
+                let unix_stream = tcp::ForwardStream::Unix(unix_stream);
+                let tcp_stream = tcp::ForwardStream::from_connector(tcp_stream, connector).await;
 
                 info!("Open pipe: {} <=> {}", unix_socket, addr);
                 if let Err(e) = tcp::forward(unix_stream, tcp_stream).await {

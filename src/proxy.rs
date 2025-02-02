@@ -61,7 +61,7 @@ impl Proxy {
             let auth = Arc::clone(&auth);
 
             tokio::spawn(async move {
-                let stream = tcp::NetStream::from_acceptor(stream, acceptor).await;
+                let stream = tcp::ForwardStream::from_acceptor(stream, acceptor).await;
 
                 if let Err(e) = socks::handle_connection(stream, auth.as_ref()).await {
                     error!("Failed to handle connection: {}", e);
@@ -89,7 +89,7 @@ impl Proxy {
             let auth = Arc::clone(&auth);
 
             tokio::spawn(async move {
-                let stream = tcp::NetStream::from_connector(stream, connector).await;
+                let stream = tcp::ForwardStream::from_connector(stream, connector).await;
 
                 if let Err(e) = socks::handle_connection(stream, auth.as_ref()).await {
                     error!("Failed to handle connection: {}", e);
@@ -127,8 +127,8 @@ impl Proxy {
             let acceptor2 = Arc::clone(&acceptor2);
 
             tokio::spawn(async move {
-                let stream1 = tcp::NetStream::from_acceptor(stream1, acceptor1).await;
-                let stream2 = tcp::NetStream::from_acceptor(stream2, acceptor2).await;
+                let stream1 = tcp::ForwardStream::from_acceptor(stream1, acceptor1).await;
+                let stream2 = tcp::ForwardStream::from_acceptor(stream2, acceptor2).await;
 
                 info!("Open pipe: {} <=> {}", client_addr1, client_addr2);
                 if let Err(e) = tcp::forward(stream1, stream2).await {
@@ -165,8 +165,9 @@ impl Proxy {
             let auth = Arc::clone(&auth);
 
             tokio::spawn(async move {
-                let client_stream = tcp::NetStream::Tcp(client_stream);
-                let remote_stream = tcp::NetStream::from_connector(remote_stream, connector).await;
+                let client_stream = tcp::ForwardStream::Tcp(client_stream);
+                let remote_stream =
+                    tcp::ForwardStream::from_connector(remote_stream, connector).await;
 
                 info!("Open pipe: {} <=> {}", client_addr, remote_addr);
                 if let Err(e) = socks::handle_forwarding(client_stream, remote_stream, auth).await {

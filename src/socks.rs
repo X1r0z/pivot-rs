@@ -8,7 +8,7 @@ use tokio::{
 use tracing::info;
 
 use crate::{
-    tcp::{self, NetStream},
+    tcp::{self, ForwardStream},
     util,
 };
 
@@ -83,7 +83,7 @@ impl SocksRequest {
 }
 
 pub async fn handle_connection(
-    client_stream: NetStream,
+    client_stream: ForwardStream,
     auth: &Option<UserPassAuth>,
 ) -> Result<()> {
     let (mut cr, mut cw) = client_stream.split();
@@ -105,8 +105,8 @@ pub async fn handle_connection(
 }
 
 pub async fn handle_forwarding(
-    client_stream: NetStream,
-    remote_stream: NetStream,
+    client_stream: ForwardStream,
+    remote_stream: ForwardStream,
     auth: Arc<UserPassAuth>,
 ) -> Result<()> {
     let (mut cr, mut cw) = client_stream.split();
@@ -138,7 +138,7 @@ pub async fn handle_forwarding(
 async fn socks_connect(
     writer: &mut Box<dyn AsyncWrite + Unpin + Send>,
     addr: String,
-) -> Result<NetStream> {
+) -> Result<ForwardStream> {
     let stream = match TcpStream::connect(addr).await {
         Ok(stream) => {
             // send success response
@@ -156,7 +156,7 @@ async fn socks_connect(
         }
     };
 
-    Ok(NetStream::Tcp(stream))
+    Ok(ForwardStream::Tcp(stream))
 }
 
 async fn socks_read_handshake(reader: &mut Box<dyn AsyncRead + Unpin + Send>) -> Result<Vec<u8>> {
