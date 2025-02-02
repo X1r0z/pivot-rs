@@ -243,12 +243,18 @@ curl http://vps:5555/version
 ```bash
 # 攻击者机器
 ./pivot proxy -l 7777 -l 8888
+# 第一个 -l 指定控制端口 (Control Port)
+# 第二个 -l 指定代理端口 (Proxy Port)
 
 # 受害者机器
 ./pivot proxy -r vps:7777
 
 # 现在攻击者可以在 vps:8888 上使用 Socks 代理
 ```
+
+上述示例中的 7777 端口被称为控制端口 (Control Port), 该端口使用 TCP 多路复用技术以确保在单个 TCP 长连接内处理多个 TCP 流 (即处理多个 Socks 代理请求)
+
+因此, 7777 和 8888 端口的顺序**不能颠倒**
 
 如果需要开启身份验证, 只需要在 `-a` 参数后添加 `user:pass`
 

