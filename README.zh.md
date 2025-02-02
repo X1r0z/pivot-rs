@@ -64,11 +64,12 @@ Port forwarding mode
 Usage: pivot fwd [OPTIONS]
 
 Options:
-  -l, --locals <LOCALS>      Local listen IP address, format: [+][IP:]PORT
-  -r, --remotes <REMOTES>    Remote connect IP address, format: [+]IP:PORT
-  -s, --socket <SOCKET>      Unix domain socket path
-  -p, --protocol <PROTOCOL>  Forward Protocol [default: tcp] [possible values: tcp, udp]
-  -h, --help                 Print help (see more with '--help')
+  -l, --locals <LOCALS>            Local listen IP address, format: [+][IP:]PORT
+  -r, --remotes <REMOTES>          Remote connect IP address, format: [+]IP:PORT
+  -s, --socket <SOCKET>            Unix domain socket path
+  -p, --protocol <PROTOCOL>        Forward Protocol [default: tcp] [possible values: tcp, udp]
+  -c, --connections <CONNECTIONS>  Maximum connections [default: 32]
+  -h, --help                       Print help (see more with '--help')
 ```
 
 Socks 代理模式
@@ -81,10 +82,11 @@ Socks proxy mode
 Usage: pivot proxy [OPTIONS]
 
 Options:
-  -l, --locals <LOCALS>  Local listen IP address, format: [+][IP:]PORT
-  -r, --remote <REMOTE>  Reverse server IP address, format: [+]IP:PORT
-  -a, --auth <AUTH>      Authentication info, format: user:pass (other for random)
-  -h, --help             Print help
+  -l, --locals <LOCALS>            Local listen IP address, format: [+][IP:]PORT
+  -r, --remote <REMOTE>            Reverse server IP address, format: [+]IP:PORT
+  -a, --auth <AUTH>                Authentication info, format: user:pass (other for random)
+  -c, --connections <CONNECTIONS>  Maximum connections [default: 32]
+  -h, --help                       Print help
 ```
 
 端口复用模式
@@ -126,6 +128,8 @@ Options:
 ```bash
 ./pivot fwd -r 10.0.0.1:8888 -r 10.0.0.1:9999
 ```
+
+在这种模式下, 指定 `-c` 可以设置最大 TCP 连接数 (默认为 32)
 
 一个简单的内网端口转发的示例.
 
@@ -255,6 +259,10 @@ curl http://vps:5555/version
 上述示例中的 7777 端口被称为控制端口 (Control Port), 该端口使用 TCP 多路复用技术以确保在单个 TCP 长连接内处理多个 TCP 流 (即处理多个 Socks 代理请求)
 
 因此, 7777 和 8888 端口的顺序**不能颠倒**
+
+另外, 在这种场景下, 受害者机器可以指定 `-c` 参数以设置最大连接数 (默认为 32)
+
+*这里的最大连接数指的是在 TCP 多路复用场景下同时处理的最大 Stream 数*
 
 如果需要开启身份验证, 只需要在 `-a` 参数后添加 `user:pass`
 

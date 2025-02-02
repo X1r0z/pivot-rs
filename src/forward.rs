@@ -11,7 +11,7 @@ use tracing::{error, info};
 #[cfg(target_family = "unix")]
 use tokio::net::UnixStream;
 
-use crate::{crypto, tcp, udp, Protocol, MAX_CONNECTIONS};
+use crate::{crypto, tcp, udp, Protocol};
 
 pub struct Forward {
     locals: Vec<(String, bool)>,
@@ -19,6 +19,7 @@ pub struct Forward {
     #[cfg(target_family = "unix")]
     socket: Option<String>,
     protocol: Protocol,
+    connections: usize,
 }
 
 impl Forward {
@@ -27,6 +28,7 @@ impl Forward {
         remotes: Vec<(String, bool)>,
         #[cfg(target_family = "unix")] socket: Option<String>,
         protocol: Protocol,
+        connections: usize,
     ) -> Self {
         Self {
             locals,
@@ -34,6 +36,7 @@ impl Forward {
             #[cfg(target_family = "unix")]
             socket,
             protocol,
+            connections,
         }
     }
 
@@ -160,7 +163,7 @@ impl Forward {
         let connector2 = Arc::new(ssl2.then(|| crypto::get_tls_connector()));
 
         // limit the number of concurrent connections
-        let semaphore = Arc::new(sync::Semaphore::new(MAX_CONNECTIONS));
+        let semaphore = Arc::new(sync::Semaphore::new(self.connections));
 
         loop {
             let permit = Arc::clone(&semaphore).acquire_owned().await.unwrap();
@@ -233,7 +236,7 @@ impl Forward {
         let connector = Arc::new(ssl.then(|| crypto::get_tls_connector()));
 
         // limit the number of concurrent connections
-        let semaphore = Arc::new(sync::Semaphore::new(MAX_CONNECTIONS));
+        let semaphore = Arc::new(sync::Semaphore::new(self.connections));
 
         loop {
             let permit = Arc::clone(&semaphore).acquire_owned().await.unwrap();

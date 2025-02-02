@@ -9,13 +9,13 @@ use crate::{
     crypto,
     socks::{self, UserPassAuth},
     tcp::{self},
-    MAX_MUX_CONNECTIONS,
 };
 
 pub struct Proxy {
     locals: Vec<(String, bool)>,
     remote: Option<(String, bool)>,
     auth: Option<UserPassAuth>,
+    connections: usize,
 }
 
 impl Proxy {
@@ -23,11 +23,13 @@ impl Proxy {
         locals: Vec<(String, bool)>,
         remote: Option<(String, bool)>,
         auth: Option<UserPassAuth>,
+        connections: usize,
     ) -> Self {
         Self {
             locals,
             remote,
             auth,
+            connections,
         }
     }
 
@@ -83,7 +85,7 @@ impl Proxy {
         let auth = Arc::new(self.auth.clone());
 
         // limit the number of concurrent connections
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(MAX_MUX_CONNECTIONS));
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(self.connections));
 
         loop {
             let permit = Arc::clone(&semaphore).acquire_owned().await;

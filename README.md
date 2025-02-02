@@ -64,11 +64,12 @@ Port forwarding mode
 Usage: pivot fwd [OPTIONS]
 
 Options:
-  -l, --locals <LOCALS>      Local listen IP address, format: [+][IP:]PORT
-  -r, --remotes <REMOTES>    Remote connect IP address, format: [+]IP:PORT
-  -s, --socket <SOCKET>      Unix domain socket path
-  -p, --protocol <PROTOCOL>  Forward Protocol [default: tcp] [possible values: tcp, udp]
-  -h, --help                 Print help (see more with '--help')
+  -l, --locals <LOCALS>            Local listen IP address, format: [+][IP:]PORT
+  -r, --remotes <REMOTES>          Remote connect IP address, format: [+]IP:PORT
+  -s, --socket <SOCKET>            Unix domain socket path
+  -p, --protocol <PROTOCOL>        Forward Protocol [default: tcp] [possible values: tcp, udp]
+  -c, --connections <CONNECTIONS>  Maximum connections [default: 32]
+  -h, --help                       Print help (see more with '--help')
 ```
 
 Socks proxy mode
@@ -81,10 +82,11 @@ Socks proxy mode
 Usage: pivot proxy [OPTIONS]
 
 Options:
-  -l, --locals <LOCALS>  Local listen IP address, format: [+][IP:]PORT
-  -r, --remote <REMOTE>  Reverse server IP address, format: [+]IP:PORT
-  -a, --auth <AUTH>      Authentication info, format: user:pass (other for random)
-  -h, --help             Print help
+  -l, --locals <LOCALS>            Local listen IP address, format: [+][IP:]PORT
+  -r, --remote <REMOTE>            Reverse server IP address, format: [+]IP:PORT
+  -a, --auth <AUTH>                Authentication info, format: user:pass (other for random)
+  -c, --connections <CONNECTIONS>  Maximum connections [default: 32]
+  -h, --help                       Print help
 ```
 
 Port reuse mode
@@ -126,6 +128,8 @@ Connect `10.0.0.1:8888` and `10.0.0.2:9999`, forward traffic between them.
 ```bash
 ./pivot fwd -r 10.0.0.1:8888 -r 10.0.0.1:9999
 ```
+
+In this mode, specifying `-c` can set the maximum number of TCP connections (default is 32)
 
 A basic example of accessing an intranet address through port forwarding.
 
@@ -230,7 +234,7 @@ curl http://vps:5555/version
 
 ### Socks Proxy
 
-`pivot-rs` supports socks5 protocol (no/with authentication)
+`pivot-rs` supports socks5 proxy (no/with authentication)
 
 Forward socks proxy
 
@@ -255,6 +259,10 @@ Reverse socks proxy
 The port 7777 in the above example is called the control port, which uses TCP multiplexing technology to ensure that multiple TCP streams (i.e., multiple socks proxy requests) can be processed within a single TCP long connection.
 
 Therefore, the order of ports 7777 and 8888 **cannot be reversed**
+
+In addition, in this scenario, the victim machine can specify the `-c` parameter to set the maximum number of connections (the default is 32)
+
+*The maximum number of connections here refers to the maximum number of streams processed simultaneously in the TCP multiplexing scenario*
 
 To enable authentication, simply add `user:pass` after the `-a` flag.
 

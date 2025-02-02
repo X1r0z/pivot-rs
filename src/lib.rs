@@ -14,9 +14,6 @@ mod tcp;
 mod udp;
 mod util;
 
-pub const MAX_CONNECTIONS: usize = 32;
-pub const MAX_MUX_CONNECTIONS: usize = 128;
-
 #[derive(Parser)]
 #[command(author, version, about = "Pivot: Port-Forwarding and Proxy Tool")]
 pub struct Cli {
@@ -46,6 +43,11 @@ enum Mode {
         #[arg(short, long)]
         #[clap(value_enum, default_value = "tcp")]
         protocol: Protocol,
+
+        /// Maximum connections
+        #[arg(short, long)]
+        #[clap(default_value = "32")]
+        connections: usize,
     },
 
     /// Socks proxy mode
@@ -61,6 +63,11 @@ enum Mode {
         /// Authentication info, format: user:pass (other for random)
         #[arg(short, long)]
         auth: Option<String>,
+
+        /// Maximum connections
+        #[arg(short, long)]
+        #[clap(default_value = "32")]
+        connections: usize,
     },
 
     /// Port reuse mode
@@ -103,6 +110,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             #[cfg(target_family = "unix")]
             socket,
             protocol,
+            connections,
         } => {
             info!("Starting forward mode");
 
@@ -120,6 +128,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 #[cfg(target_family = "unix")]
                 socket,
                 protocol,
+                connections,
             );
 
             forward.start().await?;
@@ -128,6 +137,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             locals,
             remote,
             auth,
+            connections,
         } => {
             info!("Starting proxy mode");
 
@@ -135,7 +145,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             let remote = util::parse_addr(remote);
             let auth = auth.map(|v| socks::UserPassAuth::new(v));
 
-            let proxy = Proxy::new(locals, remote, auth);
+            let proxy = Proxy::new(locals, remote, auth, connections);
             proxy.start().await?;
         }
         Mode::Reuse {
