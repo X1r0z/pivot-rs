@@ -14,6 +14,9 @@ mod tcp;
 mod udp;
 mod util;
 
+pub const MAX_CONNECTIONS: usize = 32;
+pub const MAX_MUX_CONNECTIONS: usize = 128;
+
 #[derive(Parser)]
 #[command(author, version, about = "Pivot: Port-Forwarding and Proxy Tool")]
 pub struct Cli {
