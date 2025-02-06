@@ -330,7 +330,7 @@ TLS 加密支持 TCP 端口转发, Unix domain socket 转发和 Socks 代理.
 
 端口复用的行为因操作系统而异.
 
-在 Windows 中, 只有 `SO_REUSEADDR` 选项, 允许多个 socket 绑定到同一个地址和端口. 但也有一些限制, 具体取决于运行 `pivot-rs` 的帐户以及绑定的 IP 地址, 具体可以参考如下链接.
+在 Windows 中, 只有 `SO_REUSEADDR` 选项, 允许多个 socket 绑定到同一个地址和端口. 但也有一些限制, 取决于执行端口复用的帐户以及绑定的 IP 地址, 具体可参考如下链接.
 
 [https://learn.microsoft.com/en-us/windows/win32/winsock/using-so-reuseaddr-and-so-exclusiveaddruse](https://learn.microsoft.com/en-us/windows/win32/winsock/using-so-reuseaddr-and-so-exclusiveaddruse)
 
@@ -372,7 +372,7 @@ macOS 的端口复用逻辑与 Linux 类似, 但不同的点在于 `0.0.0.0` 没
 
 公网 IP 为 `1.2.3.4` 的攻击者会通过 `192.168.1.1:8000` 连接到 `10.0.0.1:22`, 正常用户则会 fallback 到 `127.0.0.1:8000` (防止影响 8000 端口上的正常业务)
 
-注意不建议复用 `0.0.0.0` 地址上的端口 (虽然有时候能用), 因为这会导致 fallback 地址失效 (fallback 连接依然会走 `pivot-rs` 的端口复用流程, 一直循环, 最终 crash).
+注意不建议复用 `0.0.0.0` 地址上的端口, 因为这会导致 fallback 地址失效 (fallback 连接依然会走端口复用流程, 一直循环, 最终 crash).
 
 有时候你可以不用指定 fallback 地址, 而是设置一个 timeout
 

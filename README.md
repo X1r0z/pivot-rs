@@ -330,7 +330,7 @@ Example of a TLS encrypted reverse socks proxy.
 
 The behavior of port reuse differs from operation systems.
 
-In Windows, there is only `SO_REUSEADDR` option, which allows multiple sockets to bind to the same address and port. But there are some limitations, depending on the accounts `pivot-rs` is running under, and the ip address you are binding to. You can refer to the following link for details.
+In Windows, there is only `SO_REUSEADDR` option, which allows multiple sockets to bind to the same address and port. But there are some limitations, depending on the account performing port reuse, and the ip address you are binding to. You can refer to the following link for details.
 
 [https://learn.microsoft.com/en-us/windows/win32/winsock/using-so-reuseaddr-and-so-exclusiveaddruse](https://learn.microsoft.com/en-us/windows/win32/winsock/using-so-reuseaddr-and-so-exclusiveaddruse)
 
@@ -372,7 +372,7 @@ For example, reuse the port 8000
 
 Attackers from external address `1.2.3.4` will connect to `10.0.0.1:22` through `192.168.1.1:8000`, the normal users will fallback to `127.0.0.1:8000` (prevent the service on port 8000 being affected)
 
-It is not recommended to reuse ports on `0.0.0.0` address although it may work in some cases, because it will make the fallback address useless (the fallback connection will be looped in `pivot-rs` and finally cause a crash)
+It is not recommended to reuse ports on `0.0.0.0` address, because it will make the fallback address useless (the fallback connection will still go through the port reuse process, keep looping, and eventually crash)
 
 Sometimes the fallback address is not necessary, you can omit it and set a timeout.
 
