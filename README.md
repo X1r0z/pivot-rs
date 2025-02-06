@@ -330,23 +330,29 @@ Example of a TLS encrypted reverse socks proxy.
 
 The behavior of port reuse differs from operation systems.
 
-In Windows, there is only `SO_REUSEADDR` option, which allows multiple sockets to bind to the same address and port. But there are some limitations, depending on the accounts `pivot-rs` is running under, and the ip address you are binding to.
-
-e.g. binding to `0.0.0.0` (wildcard address) or `192.168.1.1` (specific address) may have different results in some senarios.
+In Windows, there is only `SO_REUSEADDR` option, which allows multiple sockets to bind to the same address and port. But there are some limitations, depending on the accounts `pivot-rs` is running under, and the ip address you are binding to. You can refer to the following link for details.
 
 [https://learn.microsoft.com/en-us/windows/win32/winsock/using-so-reuseaddr-and-so-exclusiveaddruse](https://learn.microsoft.com/en-us/windows/win32/winsock/using-so-reuseaddr-and-so-exclusiveaddruse)
 
-In Linux, there are both `SO_REUSEADDR` and `SO_REUSEPORT` options. The principle of port reuse is to bind different address.
+Linux implements port reuse through the two options `SO_REUSEADDR` and `SO_REUSEPORT`, the principle is to bind different IP addresses.
 
-For example, A machine has two IP addresses `192.168.1.1` and `10.0.0.1`. A program is listening on `10.0.0.1:80`, so you can bind to `192.168.1.1:80` to reuse port.
+| Reuse/Listen Addr | 0.0.0.0 | 192.168.1.1 | 10.0.0.1 |
+| :---------------: | :-----: | :---------: | :------: |
+|    **0.0.0.0**    |    x    |      x      |    x     |
+|  **192.168.1.1**  |    x    |      x      |    √     |
+|   **10.0.0.1**    |    x    |      √      |    x     |
 
-However, if a program is listening on `0.0.0.0:80`, then you cannot reuse the port because binding to any other address with port 80 is not allowed.
+`0.0.0.0` is mutually exclusive with any other address, that is, if a program listens on the `0.0.0.0:80` address, it cannot reuse port 80 (and vice versa).
 
-In short, if someone has already bound to `0.0.0.0`, the game is over.
+There is another scenario where port reuse with exactly the same IP address can be achieved, that is, a program itself sets the `SO_REUSEPORT` option, and the uid of the user executing the program is the same as the uid of the user executing port reuse.
 
-Of course, there is still a way to reuse port with the same address and port, that is, the program itself sets `SO_REUSEPORT`, and the uid of the user executing the program is the same as the uid of the user executing `pivot-rs`.
+The port reuse logic of macOS is similar to that of Linux, but the difference is that `0.0.0.0` is no longer mutually exclusive. Even if a program has bound to `0.0.0.0`, other programs can still bind to a specific IP address (and vice versa).
 
-In macOS, most of the behavior is the same as in Linux, but it is more flexible. Even if a program is bound to `0.0.0.0`, you can still bind to other specific IP addresses, such as `192.168.1.1`, to reuse port. (But not vice versa)
+| Reuse/Listen Addr | 0.0.0.0 | 192.168.1.1 | 10.0.0.1 |
+| :---------------: | :-----: | :---------: | :------: |
+|    **0.0.0.0**    |    x    |      √      |    √     |
+|  **192.168.1.1**  |    √    |      x      |    √     |
+|   **10.0.0.1**    |    √    |      √      |    x     |
 
 To reuse a port, you need to specify the local address, remote address, fallback address and external address.
 
