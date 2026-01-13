@@ -166,3 +166,229 @@ where
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::{TcpListener, TcpStream};
+
+    #[tokio::test]
+    async fn test_forward_basic() {
+        let forward_task = tokio::spawn(async move {
+            let (mut c1, s1) = tokio::io::duplex(1024);
+            let (mut c2, s2) = tokio::io::duplex(1024);
+
+            let fwd = tokio::spawn(async move {
+                forward(s1, s2).await.unwrap();
+            });
+
+            c1.write_all(b"hello").await.unwrap();
+
+            let mut buf = [0u8; 5];
+            c2.read_exact(&mut buf).await.unwrap();
+            assert_eq!(&buf, b"hello");
+
+            c2.write_all(b"world").await.unwrap();
+
+            let mut buf = [0u8; 5];
+            c1.read_exact(&mut buf).await.unwrap();
+            assert_eq!(&buf, b"world");
+
+            drop(c1);
+            drop(c2);
+            let _ = fwd.await;
+        });
+
+        forward_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_forward_large_data() {
+        let (mut c1, s1) = tokio::io::duplex(65536);
+        let (mut c2, s2) = tokio::io::duplex(65536);
+
+        let data: Vec<u8> = (0..10000).map(|i| (i % 256) as u8).collect();
+        let data_clone = data.clone();
+
+        let fwd = tokio::spawn(async move {
+            let _ = forward(s1, s2).await;
+        });
+
+        let writer = tokio::spawn(async move {
+            c1.write_all(&data_clone).await.unwrap();
+            drop(c1);
+        });
+
+        let mut received = vec![0u8; 10000];
+        c2.read_exact(&mut received).await.unwrap();
+        assert_eq!(received, data);
+
+        writer.await.unwrap();
+        drop(c2);
+        let _ = fwd.await;
+    }
+
+    #[tokio::test]
+    async fn test_forward_stream_tcp() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let forward_stream = ForwardStream::server(stream, Arc::new(None)).await.unwrap();
+            forward_stream
+        });
+
+        let client_stream = TcpStream::connect(addr).await.unwrap();
+        let client_forward = ForwardStream::client(client_stream, Arc::new(None))
+            .await
+            .unwrap();
+
+        let server_forward = server.await.unwrap();
+
+        assert!(matches!(client_forward, ForwardStream::Tcp(_)));
+        assert!(matches!(server_forward, ForwardStream::Tcp(_)));
+    }
+
+    #[tokio::test]
+    async fn test_forward_stream_tls() {
+        use crate::crypto;
+
+        let acceptor = crypto::get_tls_acceptor("localhost").unwrap();
+        let connector = crypto::get_tls_connector();
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let acceptor = Arc::new(Some(acceptor));
+        let connector = Arc::new(Some(connector));
+
+        let acceptor_clone = Arc::clone(&acceptor);
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let forward_stream = ForwardStream::server(stream, acceptor_clone).await.unwrap();
+            forward_stream
+        });
+
+        let client_stream = TcpStream::connect(addr).await.unwrap();
+        let client_forward = ForwardStream::client(client_stream, connector)
+            .await
+            .unwrap();
+
+        let server_forward = server.await.unwrap();
+
+        assert!(matches!(client_forward, ForwardStream::ClientTls(_)));
+        assert!(matches!(server_forward, ForwardStream::ServerTls(_)));
+    }
+
+    #[tokio::test]
+    async fn test_forward_stream_read_write() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut forward_stream = ForwardStream::server(stream, Arc::new(None)).await.unwrap();
+
+            let mut buf = [0u8; 5];
+            forward_stream.read_exact(&mut buf).await.unwrap();
+            assert_eq!(&buf, b"hello");
+
+            forward_stream.write_all(b"world").await.unwrap();
+        });
+
+        let client_stream = TcpStream::connect(addr).await.unwrap();
+        let mut client_forward = ForwardStream::client(client_stream, Arc::new(None))
+            .await
+            .unwrap();
+
+        client_forward.write_all(b"hello").await.unwrap();
+
+        let mut buf = [0u8; 5];
+        client_forward.read_exact(&mut buf).await.unwrap();
+        assert_eq!(&buf, b"world");
+
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_forward_bidirectional() {
+        let listener1 = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr1 = listener1.local_addr().unwrap();
+
+        let listener2 = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr2 = listener2.local_addr().unwrap();
+
+        let forwarder = tokio::spawn(async move {
+            let (stream1, _) = listener1.accept().await.unwrap();
+            let (stream2, _) = listener2.accept().await.unwrap();
+
+            let fs1 = ForwardStream::server(stream1, Arc::new(None))
+                .await
+                .unwrap();
+            let fs2 = ForwardStream::server(stream2, Arc::new(None))
+                .await
+                .unwrap();
+
+            forward(fs1, fs2).await.unwrap();
+        });
+
+        let client1 = TcpStream::connect(addr1).await.unwrap();
+        let client2 = TcpStream::connect(addr2).await.unwrap();
+
+        let mut client1 = ForwardStream::Tcp(client1);
+        let mut client2 = ForwardStream::Tcp(client2);
+
+        client1.write_all(b"from1").await.unwrap();
+
+        let mut buf = [0u8; 5];
+        client2.read_exact(&mut buf).await.unwrap();
+        assert_eq!(&buf, b"from1");
+
+        client2.write_all(b"from2").await.unwrap();
+
+        let mut buf = [0u8; 5];
+        client1.read_exact(&mut buf).await.unwrap();
+        assert_eq!(&buf, b"from2");
+
+        drop(client1);
+        drop(client2);
+        let _ = forwarder.await;
+    }
+
+    #[cfg(target_family = "unix")]
+    #[tokio::test]
+    async fn test_forward_stream_unix() {
+        use tokio::net::{UnixListener, UnixStream};
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let socket_path = temp_dir.path().join("test.sock");
+
+        let listener = UnixListener::bind(&socket_path).unwrap();
+
+        let socket_path_clone = socket_path.clone();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut forward_stream = ForwardStream::Unix(stream);
+
+            let mut buf = [0u8; 5];
+            forward_stream.read_exact(&mut buf).await.unwrap();
+            assert_eq!(&buf, b"hello");
+
+            forward_stream.write_all(b"world").await.unwrap();
+        });
+
+        let client_stream = UnixStream::connect(&socket_path_clone).await.unwrap();
+        let mut client_forward = ForwardStream::Unix(client_stream);
+
+        client_forward.write_all(b"hello").await.unwrap();
+
+        let mut buf = [0u8; 5];
+        client_forward.read_exact(&mut buf).await.unwrap();
+        assert_eq!(&buf, b"world");
+
+        server.await.unwrap();
+    }
+}

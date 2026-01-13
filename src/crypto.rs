@@ -90,3 +90,93 @@ impl ServerCertVerifier for NoCertVerifier {
         ]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_tls_acceptor_localhost() {
+        let acceptor = get_tls_acceptor("localhost");
+        assert!(acceptor.is_ok());
+    }
+
+    #[test]
+    fn test_get_tls_acceptor_ip_address() {
+        let acceptor = get_tls_acceptor("127.0.0.1");
+        assert!(acceptor.is_ok());
+    }
+
+    #[test]
+    fn test_get_tls_acceptor_domain() {
+        let acceptor = get_tls_acceptor("example.com");
+        assert!(acceptor.is_ok());
+    }
+
+    #[test]
+    fn test_get_tls_acceptor_with_port() {
+        let acceptor = get_tls_acceptor("0.0.0.0:8443");
+        assert!(acceptor.is_ok());
+    }
+
+    #[test]
+    fn test_get_tls_connector() {
+        let _connector = get_tls_connector();
+    }
+
+    #[test]
+    fn test_no_cert_verifier_requires_raw_public_keys() {
+        let verifier = NoCertVerifier;
+        assert!(!verifier.requires_raw_public_keys());
+    }
+
+    #[test]
+    fn test_no_cert_verifier_supported_schemes() {
+        let verifier = NoCertVerifier;
+        let schemes = verifier.supported_verify_schemes();
+
+        assert!(!schemes.is_empty());
+        assert!(schemes.contains(&SignatureScheme::ECDSA_NISTP256_SHA256));
+        assert!(schemes.contains(&SignatureScheme::RSA_PKCS1_SHA256));
+        assert!(schemes.contains(&SignatureScheme::ED25519));
+    }
+
+    #[tokio::test]
+    async fn test_tls_acceptor_and_connector_handshake() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::{TcpListener, TcpStream};
+
+        let acceptor = get_tls_acceptor("localhost").unwrap();
+        let connector = get_tls_connector();
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server_task = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut tls_stream = acceptor.accept(stream).await.unwrap();
+
+            let mut buf = [0u8; 5];
+            tls_stream.read_exact(&mut buf).await.unwrap();
+            assert_eq!(&buf, b"hello");
+
+            tls_stream.write_all(b"world").await.unwrap();
+        });
+
+        let client_task = tokio::spawn(async move {
+            let stream = TcpStream::connect(addr).await.unwrap();
+            let server_name = rustls::pki_types::ServerName::try_from("localhost").unwrap();
+            let mut tls_stream = connector.connect(server_name, stream).await.unwrap();
+
+            tls_stream.write_all(b"hello").await.unwrap();
+
+            let mut buf = [0u8; 5];
+            tls_stream.read_exact(&mut buf).await.unwrap();
+            assert_eq!(&buf, b"world");
+        });
+
+        let (server_result, client_result) = tokio::join!(server_task, client_task);
+        server_result.unwrap();
+        client_result.unwrap();
+    }
+}

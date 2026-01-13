@@ -180,17 +180,11 @@ impl Proxy {
                     }
                 };
 
-                info!(
-                    "Open pipe: {} <=> {}",
-                    mux_client_addr, proxy_client_addr
-                );
+                info!("Open pipe: {} <=> {}", mux_client_addr, proxy_client_addr);
                 if let Err(e) = tcp::forward(mux_stream, proxy_stream).await {
                     error!("Failed to forward: {}", e);
                 }
-                info!(
-                    "Close pipe: {} <=> {}",
-                    mux_client_addr, proxy_client_addr
-                );
+                info!("Close pipe: {} <=> {}", mux_client_addr, proxy_client_addr);
             });
         }
 
@@ -236,9 +230,7 @@ impl Proxy {
                 };
 
                 info!("Open pipe: {} <=> {}", client_addr, peer_addr);
-                if let Err(e) =
-                    socks::handle_forwarding(client_stream, remote_stream, auth).await
-                {
+                if let Err(e) = socks::handle_forwarding(client_stream, remote_stream, auth).await {
                     error!("Failed to forward: {}", e);
                 }
                 info!("Close pipe: {} <=> {}", client_addr, peer_addr);
