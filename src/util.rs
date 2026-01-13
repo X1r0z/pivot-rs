@@ -1,4 +1,8 @@
+use anyhow::Result;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
+use tokio_rustls::{TlsAcceptor, TlsConnector};
+
+use crate::crypto;
 
 #[derive(Clone, Debug)]
 pub struct Endpoint {
@@ -38,6 +42,22 @@ pub fn parse_addrs(addrs: Vec<String>) -> Vec<Endpoint> {
 
 pub fn parse_addr(addr: Option<String>) -> Option<Endpoint> {
     addr.map(|a| parse_addrs(vec![a]).pop().unwrap())
+}
+
+pub fn make_tls_acceptor(ep: &Endpoint) -> Result<Option<TlsAcceptor>> {
+    if ep.tls {
+        Ok(Some(crypto::get_tls_acceptor(&ep.addr)?))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn make_tls_connector(ep: &Endpoint) -> Option<TlsConnector> {
+    if ep.tls {
+        Some(crypto::get_tls_connector())
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]

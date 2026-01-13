@@ -6,17 +6,15 @@ use tokio::{
     net::{TcpListener, TcpStream, UdpSocket},
     sync::Semaphore,
 };
-use tokio_rustls::{TlsAcceptor, TlsConnector};
 use tracing::{error, info};
 
 #[cfg(target_family = "unix")]
 use tokio::net::UnixStream;
 
 use crate::{
-    crypto,
     tcp::{self, ForwardStream},
     udp,
-    util::Endpoint,
+    util::{self, Endpoint},
     Protocol,
 };
 
@@ -97,8 +95,8 @@ impl Forward {
         let listener1 = bind_tcp(&ep1.addr).await?;
         let listener2 = bind_tcp(&ep2.addr).await?;
 
-        let acceptor1 = Arc::new(make_tls_acceptor(ep1)?);
-        let acceptor2 = Arc::new(make_tls_acceptor(ep2)?);
+        let acceptor1 = Arc::new(util::make_tls_acceptor(ep1)?);
+        let acceptor2 = Arc::new(util::make_tls_acceptor(ep2)?);
 
         loop {
             let (r1, r2) = join!(listener1.accept(), listener2.accept());
@@ -139,8 +137,8 @@ impl Forward {
 
         let listener = bind_tcp(&local_ep.addr).await?;
 
-        let acceptor = Arc::new(make_tls_acceptor(local_ep)?);
-        let connector = Arc::new(make_tls_connector(remote_ep));
+        let acceptor = Arc::new(util::make_tls_acceptor(local_ep)?);
+        let connector = Arc::new(util::make_tls_connector(remote_ep));
         let remote_addr = remote_ep.addr.clone();
 
         loop {
@@ -179,8 +177,8 @@ impl Forward {
         let ep1 = &self.remotes[0];
         let ep2 = &self.remotes[1];
 
-        let connector1 = Arc::new(make_tls_connector(ep1));
-        let connector2 = Arc::new(make_tls_connector(ep2));
+        let connector1 = Arc::new(util::make_tls_connector(ep1));
+        let connector2 = Arc::new(util::make_tls_connector(ep2));
         let addr1 = ep1.addr.clone();
         let addr2 = ep2.addr.clone();
 
@@ -239,7 +237,7 @@ impl Forward {
             .clone();
 
         let listener = bind_tcp(&ep.addr).await?;
-        let acceptor = Arc::new(make_tls_acceptor(ep)?);
+        let acceptor = Arc::new(util::make_tls_acceptor(ep)?);
 
         loop {
             let (tcp_stream, client_addr) = listener.accept().await?;
@@ -272,6 +270,8 @@ impl Forward {
 
     #[cfg(target_family = "unix")]
     async fn socket_to_remote_tcp(&self) -> Result<()> {
+        use crate::util;
+
         let ep = &self.remotes[0];
         let unix_path = self
             .socket
@@ -279,7 +279,7 @@ impl Forward {
             .ok_or_else(|| anyhow!("Unix socket path is required"))?
             .clone();
 
-        let connector = Arc::new(make_tls_connector(ep));
+        let connector = Arc::new(util::make_tls_connector(ep));
         let remote_addr = ep.addr.clone();
 
         let semaphore = Arc::new(Semaphore::new(self.connections));
@@ -377,20 +377,4 @@ async fn bind_udp(addr: &str) -> Result<UdpSocket> {
     let socket = UdpSocket::bind(addr).await?;
     info!("Bind to {} success", addr);
     Ok(socket)
-}
-
-fn make_tls_acceptor(ep: &Endpoint) -> Result<Option<TlsAcceptor>> {
-    if ep.tls {
-        Ok(Some(crypto::get_tls_acceptor(&ep.addr)?))
-    } else {
-        Ok(None)
-    }
-}
-
-fn make_tls_connector(ep: &Endpoint) -> Option<TlsConnector> {
-    if ep.tls {
-        Some(crypto::get_tls_connector())
-    } else {
-        None
-    }
 }

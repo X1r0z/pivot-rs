@@ -6,14 +6,12 @@ use tokio::{
     net::{TcpListener, TcpStream},
     sync::Semaphore,
 };
-use tokio_rustls::{TlsAcceptor, TlsConnector};
 use tracing::{error, info};
 
 use crate::{
-    crypto,
     socks::{self, UserPassAuth},
     tcp::{self, ForwardStream},
-    util::Endpoint,
+    util::{self, Endpoint},
 };
 
 pub struct Proxy {
@@ -56,7 +54,7 @@ impl Proxy {
         let listener = bind_tcp(&ep.addr).await?;
         info!("Start socks server on {}", listener.local_addr()?);
 
-        let acceptor = Arc::new(make_tls_acceptor(ep)?);
+        let acceptor = Arc::new(util::make_tls_acceptor(ep)?);
         let auth = Arc::new(self.auth.clone());
 
         loop {
@@ -95,7 +93,7 @@ impl Proxy {
         tokio::spawn(worker);
 
         let mux_connector = Arc::new(mux_connector);
-        let tls_connector = Arc::new(make_tls_connector(ep));
+        let tls_connector = Arc::new(util::make_tls_connector(ep));
         let auth = Arc::new(self.auth.clone());
 
         let semaphore = Arc::new(Semaphore::new(self.connections));
@@ -152,8 +150,8 @@ impl Proxy {
             proxy_listener.local_addr()?
         );
 
-        let mux_tls_acceptor = Arc::new(make_tls_acceptor(mux_ep)?);
-        let proxy_tls_acceptor = Arc::new(make_tls_acceptor(proxy_ep)?);
+        let mux_tls_acceptor = Arc::new(util::make_tls_acceptor(mux_ep)?);
+        let proxy_tls_acceptor = Arc::new(util::make_tls_acceptor(proxy_ep)?);
 
         let (stream, mux_client_addr) = mux_listener.accept().await?;
         info!("Accept connection from {}", mux_client_addr);
@@ -204,7 +202,7 @@ impl Proxy {
             .ok_or_else(|| anyhow!("Username and password are required"))?;
 
         let listener = bind_tcp(&local_ep.addr).await?;
-        let connector = Arc::new(make_tls_connector(remote_ep));
+        let connector = Arc::new(util::make_tls_connector(remote_ep));
         let auth = Arc::new(auth);
         let remote_addr = remote_ep.addr.clone();
 
@@ -242,20 +240,4 @@ impl Proxy {
 async fn bind_tcp(addr: &str) -> Result<TcpListener> {
     let listener = TcpListener::bind(addr).await?;
     Ok(listener)
-}
-
-fn make_tls_acceptor(ep: &Endpoint) -> Result<Option<TlsAcceptor>> {
-    if ep.tls {
-        Ok(Some(crypto::get_tls_acceptor(&ep.addr)?))
-    } else {
-        Ok(None)
-    }
-}
-
-fn make_tls_connector(ep: &Endpoint) -> Option<TlsConnector> {
-    if ep.tls {
-        Some(crypto::get_tls_connector())
-    } else {
-        None
-    }
 }
