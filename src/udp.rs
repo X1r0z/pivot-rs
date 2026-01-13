@@ -230,13 +230,13 @@ mod tests {
         forward_task.abort();
     }
 
-    #[tokio::test]
-    async fn test_buffer_size_constant() {
+    #[test]
+    fn test_buffer_size_constant() {
         assert_eq!(BUFFER_SIZE, 65535);
     }
 
-    #[tokio::test]
-    async fn test_handshake_packet_constant() {
+    #[test]
+    fn test_handshake_packet_constant() {
         assert_eq!(HANDSHAKE_PACKET, [0u8; 4]);
     }
 
