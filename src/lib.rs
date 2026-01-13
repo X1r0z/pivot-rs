@@ -5,14 +5,14 @@ use proxy::Proxy;
 use reuse::Reuse;
 use tracing::info;
 
-mod crypto;
-mod forward;
-mod proxy;
-mod reuse;
-mod socks;
-mod tcp;
-mod udp;
-mod util;
+pub mod crypto;
+pub mod forward;
+pub mod proxy;
+pub mod reuse;
+pub mod socks;
+pub mod tcp;
+pub mod udp;
+pub mod util;
 
 #[derive(Parser)]
 #[command(author, version, about = "Pivot: Port-Forwarding and Proxy Tool")]
@@ -95,7 +95,7 @@ enum Mode {
 }
 
 #[derive(Clone, ValueEnum)]
-enum Protocol {
+pub enum Protocol {
     /// TCP Protocol
     Tcp,
     /// UDP Protocol
@@ -143,7 +143,7 @@ pub async fn run(cli: Cli) -> Result<()> {
 
             let locals = util::parse_addrs(locals);
             let remote = util::parse_addr(remote);
-            let auth = auth.map(|v| socks::UserPassAuth::new(v));
+            let auth = auth.map(socks::UserPassAuth::new);
 
             let proxy = Proxy::new(locals, remote, auth, connections);
             proxy.start().await?;
@@ -157,7 +157,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         } => {
             info!("Starting reuse mode");
 
-            let reuse = Reuse::new(local, remote, fallback, external, timeout);
+            let reuse = Reuse::new(local, remote, fallback, external, timeout)?;
             reuse.start().await?;
         }
     }
