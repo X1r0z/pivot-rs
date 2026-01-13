@@ -1,10 +1,17 @@
-use std::sync::Arc;
+use std::{
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
 
 use anyhow::Result;
 use async_smux::MuxStream;
 use rustls::pki_types::ServerName;
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::{io, net::TcpStream, select};
+use tokio::{
+    io::{self, AsyncRead, AsyncWrite, ReadBuf},
+    net::TcpStream,
+    select,
+};
 use tokio_rustls::{client, server, TlsAcceptor, TlsConnector};
 use tracing::error;
 
@@ -23,122 +30,138 @@ pub enum ForwardStream {
 }
 
 impl ForwardStream {
-    pub async fn server(stream: TcpStream, acceptor: Arc<Option<TlsAcceptor>>) -> Self {
+    pub async fn server(stream: TcpStream, acceptor: Arc<Option<TlsAcceptor>>) -> Result<Self> {
         match acceptor.as_ref() {
-            Some(acceptor) => Self::ServerTls(acceptor.accept(stream).await.unwrap()),
-            None => Self::Tcp(stream),
+            Some(acceptor) => Ok(Self::ServerTls(acceptor.accept(stream).await?)),
+            None => Ok(Self::Tcp(stream)),
         }
     }
 
-    pub async fn client(stream: TcpStream, connector: Arc<Option<TlsConnector>>) -> Self {
+    pub async fn client(stream: TcpStream, connector: Arc<Option<TlsConnector>>) -> Result<Self> {
         match connector.as_ref() {
-            Some(connector) => Self::ClientTls(
-                connector
-                    .connect(ServerName::try_from("localhost").unwrap(), stream)
-                    .await
-                    .unwrap(),
-            ),
-            None => Self::Tcp(stream),
+            Some(connector) => {
+                let server_name = ServerName::try_from("localhost")?;
+                Ok(Self::ClientTls(
+                    connector.connect(server_name, stream).await?,
+                ))
+            }
+            None => Ok(Self::Tcp(stream)),
         }
     }
 
     pub async fn mux_server(
         mux_stream: MuxStream<TcpStream>,
         acceptor: Arc<Option<TlsAcceptor>>,
-    ) -> Self {
+    ) -> Result<Self> {
         match acceptor.as_ref() {
-            Some(acceptor) => Self::MuxServerTls(acceptor.accept(mux_stream).await.unwrap()),
-            None => Self::MuxTcp(mux_stream),
+            Some(acceptor) => Ok(Self::MuxServerTls(acceptor.accept(mux_stream).await?)),
+            None => Ok(Self::MuxTcp(mux_stream)),
         }
     }
 
     pub async fn mux_client(
         mux_stream: MuxStream<TcpStream>,
         connector: Arc<Option<TlsConnector>>,
-    ) -> Self {
+    ) -> Result<Self> {
         match connector.as_ref() {
-            Some(connector) => Self::MuxClientTls(
-                connector
-                    .connect(ServerName::try_from("localhost").unwrap(), mux_stream)
-                    .await
-                    .unwrap(),
-            ),
-            None => Self::MuxTcp(mux_stream),
+            Some(connector) => {
+                let server_name = ServerName::try_from("localhost")?;
+                Ok(Self::MuxClientTls(
+                    connector.connect(server_name, mux_stream).await?,
+                ))
+            }
+            None => Ok(Self::MuxTcp(mux_stream)),
         }
     }
+}
 
-    pub fn split(
-        self,
-    ) -> (
-        Box<dyn AsyncRead + Unpin + Send>,
-        Box<dyn AsyncWrite + Unpin + Send>,
-    ) {
-        match self {
-            ForwardStream::Tcp(stream) => {
-                let (r, w) = io::split(stream);
-                (Box::new(r), Box::new(w))
-            }
-            ForwardStream::ServerTls(stream) => {
-                let (r, w) = io::split(stream);
-                (Box::new(r), Box::new(w))
-            }
-            ForwardStream::ClientTls(stream) => {
-                let (r, w) = io::split(stream);
-                (Box::new(r), Box::new(w))
-            }
-            ForwardStream::MuxTcp(stream) => {
-                let (r, w) = io::split(stream);
-                (Box::new(r), Box::new(w))
-            }
-            ForwardStream::MuxServerTls(stream) => {
-                let (r, w) = io::split(stream);
-                (Box::new(r), Box::new(w))
-            }
-            ForwardStream::MuxClientTls(stream) => {
-                let (r, w) = io::split(stream);
-                (Box::new(r), Box::new(w))
-            }
+impl AsyncRead for ForwardStream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            ForwardStream::Tcp(s) => Pin::new(s).poll_read(cx, buf),
+            ForwardStream::ServerTls(s) => Pin::new(s).poll_read(cx, buf),
+            ForwardStream::ClientTls(s) => Pin::new(s).poll_read(cx, buf),
+            ForwardStream::MuxTcp(s) => Pin::new(s).poll_read(cx, buf),
+            ForwardStream::MuxServerTls(s) => Pin::new(s).poll_read(cx, buf),
+            ForwardStream::MuxClientTls(s) => Pin::new(s).poll_read(cx, buf),
             #[cfg(target_family = "unix")]
-            ForwardStream::Unix(stream) => {
-                let (r, w) = io::split(stream);
-                (Box::new(r), Box::new(w))
-            }
+            ForwardStream::Unix(s) => Pin::new(s).poll_read(cx, buf),
         }
     }
 }
 
-pub async fn forward(stream1: ForwardStream, stream2: ForwardStream) -> Result<()> {
-    let (r1, w1) = stream1.split();
-    let (r2, w2) = stream2.split();
+impl AsyncWrite for ForwardStream {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        match self.get_mut() {
+            ForwardStream::Tcp(s) => Pin::new(s).poll_write(cx, buf),
+            ForwardStream::ServerTls(s) => Pin::new(s).poll_write(cx, buf),
+            ForwardStream::ClientTls(s) => Pin::new(s).poll_write(cx, buf),
+            ForwardStream::MuxTcp(s) => Pin::new(s).poll_write(cx, buf),
+            ForwardStream::MuxServerTls(s) => Pin::new(s).poll_write(cx, buf),
+            ForwardStream::MuxClientTls(s) => Pin::new(s).poll_write(cx, buf),
+            #[cfg(target_family = "unix")]
+            ForwardStream::Unix(s) => Pin::new(s).poll_write(cx, buf),
+        }
+    }
 
-    split_forward((r1, w1), (r2, w2)).await
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            ForwardStream::Tcp(s) => Pin::new(s).poll_flush(cx),
+            ForwardStream::ServerTls(s) => Pin::new(s).poll_flush(cx),
+            ForwardStream::ClientTls(s) => Pin::new(s).poll_flush(cx),
+            ForwardStream::MuxTcp(s) => Pin::new(s).poll_flush(cx),
+            ForwardStream::MuxServerTls(s) => Pin::new(s).poll_flush(cx),
+            ForwardStream::MuxClientTls(s) => Pin::new(s).poll_flush(cx),
+            #[cfg(target_family = "unix")]
+            ForwardStream::Unix(s) => Pin::new(s).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            ForwardStream::Tcp(s) => Pin::new(s).poll_shutdown(cx),
+            ForwardStream::ServerTls(s) => Pin::new(s).poll_shutdown(cx),
+            ForwardStream::ClientTls(s) => Pin::new(s).poll_shutdown(cx),
+            ForwardStream::MuxTcp(s) => Pin::new(s).poll_shutdown(cx),
+            ForwardStream::MuxServerTls(s) => Pin::new(s).poll_shutdown(cx),
+            ForwardStream::MuxClientTls(s) => Pin::new(s).poll_shutdown(cx),
+            #[cfg(target_family = "unix")]
+            ForwardStream::Unix(s) => Pin::new(s).poll_shutdown(cx),
+        }
+    }
 }
 
-pub async fn split_forward(
-    (mut r1, mut w1): (
-        Box<dyn AsyncRead + Unpin + Send>,
-        Box<dyn AsyncWrite + Unpin + Send>,
-    ),
-    (mut r2, mut w2): (
-        Box<dyn AsyncRead + Unpin + Send>,
-        Box<dyn AsyncWrite + Unpin + Send>,
-    ),
-) -> Result<()> {
-    let handle1 = async {
-        if let Err(e) = tokio::io::copy(&mut r1, &mut w2).await {
+pub async fn forward<S1, S2>(mut stream1: S1, mut stream2: S2) -> Result<()>
+where
+    S1: AsyncRead + AsyncWrite + Unpin,
+    S2: AsyncRead + AsyncWrite + Unpin,
+{
+    let (mut r1, mut w1) = io::split(&mut stream1);
+    let (mut r2, mut w2) = io::split(&mut stream2);
+
+    let copy1 = async {
+        if let Err(e) = io::copy(&mut r1, &mut w2).await {
             error!("Failed to copy: {}", e);
         }
     };
 
-    let handle2 = async {
-        if let Err(e) = tokio::io::copy(&mut r2, &mut w1).await {
+    let copy2 = async {
+        if let Err(e) = io::copy(&mut r2, &mut w1).await {
             error!("Failed to copy: {}", e);
         }
     };
 
     select! {
-        _ = handle1 => {},
-        _ = handle2 => {},
+        _ = copy1 => {},
+        _ = copy2 => {},
     }
 
     Ok(())

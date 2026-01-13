@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use anyhow::Result;
 use rcgen::{generate_simple_self_signed, CertifiedKey};
 use rustls::{
     client::danger::ServerCertVerifier,
@@ -9,22 +10,20 @@ use rustls::{
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 use tracing::info;
 
-pub fn get_tls_acceptor(host: &str) -> TlsAcceptor {
+pub fn get_tls_acceptor(host: &str) -> Result<TlsAcceptor> {
     info!("Generate self-signed tls certificate for {}", host);
 
     let subject_alt_names = vec![host.into()];
-    let CertifiedKey { cert, key_pair } = generate_simple_self_signed(subject_alt_names).unwrap();
+    let CertifiedKey { cert, key_pair } = generate_simple_self_signed(subject_alt_names)?;
 
     let cert_chain = CertificateDer::pem_slice_iter(cert.pem().as_bytes())
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .unwrap();
-    let key_der = PrivateKeyDer::from_pem_slice(key_pair.serialize_pem().as_bytes()).unwrap();
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let key_der = PrivateKeyDer::from_pem_slice(key_pair.serialize_pem().as_bytes())?;
     let config = ServerConfig::builder()
         .with_no_client_auth()
-        .with_single_cert(cert_chain, key_der)
-        .unwrap();
+        .with_single_cert(cert_chain, key_der)?;
 
-    TlsAcceptor::from(Arc::new(config))
+    Ok(TlsAcceptor::from(Arc::new(config)))
 }
 
 pub fn get_tls_connector() -> TlsConnector {
@@ -39,33 +38,32 @@ pub fn get_tls_connector() -> TlsConnector {
 #[derive(Debug)]
 struct NoCertVerifier;
 
-#[allow(unused_variables)]
 impl ServerCertVerifier for NoCertVerifier {
     fn verify_server_cert(
         &self,
-        end_entity: &CertificateDer<'_>,
-        intermediates: &[CertificateDer<'_>],
-        server_name: &rustls::pki_types::ServerName<'_>,
-        ocsp_response: &[u8],
-        now: rustls::pki_types::UnixTime,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &rustls::pki_types::ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
     ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
         Ok(rustls::client::danger::ServerCertVerified::assertion())
     }
 
     fn verify_tls12_signature(
         &self,
-        message: &[u8],
-        cert: &CertificateDer<'_>,
-        dss: &rustls::DigitallySignedStruct,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
     ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
         Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
     }
 
     fn verify_tls13_signature(
         &self,
-        message: &[u8],
-        cert: &CertificateDer<'_>,
-        dss: &rustls::DigitallySignedStruct,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
     ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
         Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
     }
@@ -74,7 +72,7 @@ impl ServerCertVerifier for NoCertVerifier {
         false
     }
 
-    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
         vec![
             SignatureScheme::ECDSA_NISTP256_SHA256,
             SignatureScheme::ECDSA_NISTP384_SHA384,
