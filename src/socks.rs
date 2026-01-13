@@ -357,3 +357,328 @@ where
 
     Ok(response)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_user_pass_auth_new_valid() {
+        let auth = UserPassAuth::new("admin:password123".to_string());
+        assert_eq!(auth.user, "admin");
+        assert_eq!(auth.pass, "password123");
+    }
+
+    #[test]
+    fn test_user_pass_auth_new_random() {
+        let auth = UserPassAuth::new("random".to_string());
+        assert_eq!(auth.user.len(), 12);
+        assert_eq!(auth.pass.len(), 12);
+        assert!(auth.user.chars().all(|c| c.is_ascii_alphanumeric()));
+        assert!(auth.pass.chars().all(|c| c.is_ascii_alphanumeric()));
+    }
+
+    #[test]
+    fn test_user_pass_auth_new_empty() {
+        let auth = UserPassAuth::new("".to_string());
+        assert_eq!(auth.user.len(), 12);
+        assert_eq!(auth.pass.len(), 12);
+    }
+
+    #[test]
+    fn test_user_pass_auth_new_only_colon() {
+        let auth = UserPassAuth::new(":".to_string());
+        assert_eq!(auth.user, "");
+        assert_eq!(auth.pass, "");
+    }
+
+    #[test]
+    fn test_user_pass_auth_new_multiple_colons() {
+        let auth = UserPassAuth::new("user:pass:extra".to_string());
+        assert_eq!(auth.user.len(), 12);
+        assert_eq!(auth.pass.len(), 12);
+    }
+
+    #[test]
+    fn test_user_pass_auth_verify_success() {
+        let auth = UserPassAuth::new("testuser:testpass".to_string());
+        assert!(auth.verify("testuser", "testpass"));
+    }
+
+    #[test]
+    fn test_user_pass_auth_verify_wrong_user() {
+        let auth = UserPassAuth::new("testuser:testpass".to_string());
+        assert!(!auth.verify("wronguser", "testpass"));
+    }
+
+    #[test]
+    fn test_user_pass_auth_verify_wrong_pass() {
+        let auth = UserPassAuth::new("testuser:testpass".to_string());
+        assert!(!auth.verify("testuser", "wrongpass"));
+    }
+
+    #[test]
+    fn test_user_pass_auth_verify_both_wrong() {
+        let auth = UserPassAuth::new("testuser:testpass".to_string());
+        assert!(!auth.verify("wronguser", "wrongpass"));
+    }
+
+    #[test]
+    fn test_addr_type_try_from_ipv4() {
+        let addr_type = AddrType::try_from(0x01).unwrap();
+        assert!(matches!(addr_type, AddrType::Ipv4));
+    }
+
+    #[test]
+    fn test_addr_type_try_from_domain() {
+        let addr_type = AddrType::try_from(0x03).unwrap();
+        assert!(matches!(addr_type, AddrType::Domain));
+    }
+
+    #[test]
+    fn test_addr_type_try_from_ipv6() {
+        let addr_type = AddrType::try_from(0x04).unwrap();
+        assert!(matches!(addr_type, AddrType::Ipv6));
+    }
+
+    #[test]
+    fn test_addr_type_try_from_invalid() {
+        let result = AddrType::try_from(0x00);
+        assert!(result.is_err());
+
+        let result = AddrType::try_from(0x02);
+        assert!(result.is_err());
+
+        let result = AddrType::try_from(0x05);
+        assert!(result.is_err());
+
+        let result = AddrType::try_from(0xff);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_socks_request_parse_addr_ipv4() {
+        let request = SocksRequest {
+            cmd: CMD_CONNECT,
+            addr_type: AddrType::Ipv4,
+            addr: vec![192, 168, 1, 1],
+            port: 8080,
+        };
+        assert_eq!(request.parse_addr(), "192.168.1.1:8080");
+    }
+
+    #[test]
+    fn test_socks_request_parse_addr_ipv4_localhost() {
+        let request = SocksRequest {
+            cmd: CMD_CONNECT,
+            addr_type: AddrType::Ipv4,
+            addr: vec![127, 0, 0, 1],
+            port: 80,
+        };
+        assert_eq!(request.parse_addr(), "127.0.0.1:80");
+    }
+
+    #[test]
+    fn test_socks_request_parse_addr_domain() {
+        let domain = "example.com";
+        let mut addr = vec![domain.len() as u8];
+        addr.extend_from_slice(domain.as_bytes());
+
+        let request = SocksRequest {
+            cmd: CMD_CONNECT,
+            addr_type: AddrType::Domain,
+            addr,
+            port: 443,
+        };
+        assert_eq!(request.parse_addr(), "example.com:443");
+    }
+
+    #[test]
+    fn test_socks_request_parse_addr_domain_subdomain() {
+        let domain = "sub.example.com";
+        let mut addr = vec![domain.len() as u8];
+        addr.extend_from_slice(domain.as_bytes());
+
+        let request = SocksRequest {
+            cmd: CMD_CONNECT,
+            addr_type: AddrType::Domain,
+            addr,
+            port: 8443,
+        };
+        assert_eq!(request.parse_addr(), "sub.example.com:8443");
+    }
+
+    #[test]
+    fn test_socks_request_parse_addr_ipv6() {
+        let request = SocksRequest {
+            cmd: CMD_CONNECT,
+            addr_type: AddrType::Ipv6,
+            addr: vec![
+                0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x01,
+            ],
+            port: 80,
+        };
+        assert_eq!(
+            request.parse_addr(),
+            "[2001:0db8:0000:0000:0000:0000:0000:0001]:80"
+        );
+    }
+
+    #[test]
+    fn test_socks_request_parse_addr_ipv6_localhost() {
+        let request = SocksRequest {
+            cmd: CMD_CONNECT,
+            addr_type: AddrType::Ipv6,
+            addr: vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            port: 8080,
+        };
+        assert_eq!(
+            request.parse_addr(),
+            "[0000:0000:0000:0000:0000:0000:0000:0001]:8080"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_socks_read_handshake_valid() {
+        let data = vec![0x05, 0x02, 0x00, 0x02];
+        let mut cursor = std::io::Cursor::new(data);
+
+        let methods = socks_read_handshake(&mut cursor).await.unwrap();
+        assert_eq!(methods, vec![0x00, 0x02]);
+    }
+
+    #[tokio::test]
+    async fn test_socks_read_handshake_single_method() {
+        let data = vec![0x05, 0x01, 0x00];
+        let mut cursor = std::io::Cursor::new(data);
+
+        let methods = socks_read_handshake(&mut cursor).await.unwrap();
+        assert_eq!(methods, vec![0x00]);
+    }
+
+    #[tokio::test]
+    async fn test_socks_read_handshake_invalid_version() {
+        let data = vec![0x04, 0x01, 0x00];
+        let mut cursor = std::io::Cursor::new(data);
+
+        let result = socks_read_handshake(&mut cursor).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("SOCKS5"));
+    }
+
+    #[tokio::test]
+    async fn test_socks_read_request_ipv4() {
+        let data = vec![0x05, 0x01, 0x00, 0x01, 192, 168, 1, 100, 0x1F, 0x90];
+        let mut cursor = std::io::Cursor::new(data);
+
+        let request = socks_read_request(&mut cursor).await.unwrap();
+        assert_eq!(request.cmd, CMD_CONNECT);
+        assert!(matches!(request.addr_type, AddrType::Ipv4));
+        assert_eq!(request.addr, vec![192, 168, 1, 100]);
+        assert_eq!(request.port, 8080);
+    }
+
+    #[tokio::test]
+    async fn test_socks_read_request_domain() {
+        let domain = "test.com";
+        let mut data = vec![0x05, 0x01, 0x00, 0x03, domain.len() as u8];
+        data.extend_from_slice(domain.as_bytes());
+        data.extend_from_slice(&[0x00, 0x50]);
+
+        let mut cursor = std::io::Cursor::new(data);
+
+        let request = socks_read_request(&mut cursor).await.unwrap();
+        assert_eq!(request.cmd, CMD_CONNECT);
+        assert!(matches!(request.addr_type, AddrType::Domain));
+        assert_eq!(request.port, 80);
+    }
+
+    #[tokio::test]
+    async fn test_socks_read_request_ipv6() {
+        let mut data = vec![0x05, 0x01, 0x00, 0x04];
+        data.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+        data.extend_from_slice(&[0x01, 0xBB]);
+
+        let mut cursor = std::io::Cursor::new(data);
+
+        let request = socks_read_request(&mut cursor).await.unwrap();
+        assert_eq!(request.cmd, CMD_CONNECT);
+        assert!(matches!(request.addr_type, AddrType::Ipv6));
+        assert_eq!(request.port, 443);
+    }
+
+    #[tokio::test]
+    async fn test_socks_read_request_invalid_version() {
+        let data = vec![0x04, 0x01, 0x00, 0x01, 127, 0, 0, 1, 0x00, 0x50];
+        let mut cursor = std::io::Cursor::new(data);
+
+        let result = socks_read_request(&mut cursor).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_socks_read_request_unsupported_cmd() {
+        let data = vec![0x05, 0x02, 0x00, 0x01, 127, 0, 0, 1, 0x00, 0x50];
+        let mut cursor = std::io::Cursor::new(data);
+
+        let result = socks_read_request(&mut cursor).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("CONNECT"));
+    }
+
+    #[tokio::test]
+    async fn test_socks_authenticate_no_auth() {
+        let (mut client, mut server) = tokio::io::duplex(1024);
+        let methods = vec![0x00];
+
+        let auth_task = tokio::spawn(async move {
+            socks_authenticate(&mut server, methods, &None)
+                .await
+                .unwrap();
+        });
+
+        let mut response = [0u8; 2];
+        client.read_exact(&mut response).await.unwrap();
+        assert_eq!(response, [0x05, 0x00]);
+
+        auth_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_socks_send_request() {
+        let request = SocksRequest {
+            cmd: CMD_CONNECT,
+            addr_type: AddrType::Ipv4,
+            addr: vec![127, 0, 0, 1],
+            port: 8080,
+        };
+
+        let mut buf = Vec::new();
+        socks_send_request(&mut buf, &request).await.unwrap();
+
+        assert_eq!(buf, vec![0x05, 0x01, 0x00, 0x01, 127, 0, 0, 1, 0x1F, 0x90,]);
+    }
+
+    #[tokio::test]
+    async fn test_socks_read_response_ipv4() {
+        let data = vec![0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0x00, 0x00];
+        let mut cursor = std::io::Cursor::new(data.clone());
+
+        let response = socks_read_response(&mut cursor).await.unwrap();
+        assert_eq!(response, data);
+    }
+
+    #[tokio::test]
+    async fn test_socks_read_response_domain() {
+        let domain = "example.com";
+        let mut data = vec![0x05, 0x00, 0x00, 0x03, domain.len() as u8];
+        data.extend_from_slice(domain.as_bytes());
+        data.extend_from_slice(&[0x00, 0x50]);
+
+        let mut cursor = std::io::Cursor::new(data.clone());
+
+        let response = socks_read_response(&mut cursor).await.unwrap();
+        assert_eq!(response, data);
+    }
+}
